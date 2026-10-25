@@ -8,16 +8,16 @@ This guide explains how to build, configure, and run **FlowUI** in Docker using 
 
 ## 1. Overview of Docker Files
 
-| File                                                                 | Target OS                  | Services Included                                         | Description                                                                                                                                                                     |
-| :------------------------------------------------------------------- | :------------------------- | :-------------------------------------------------------- | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| [`Dockerfile`](./Dockerfile)                                         | **Linux** (Default)        | `FlowUI`                                                  | Multi-stage build using `mcr.microsoft.com/dotnet/sdk:10.0` and `mcr.microsoft.com/dotnet/aspnet:10.0` (runs as non-root `$APP_UID`).                                           |
-| [`Dockerfile.windows`](./Dockerfile.windows)                         | **Windows** (`ltsc2022`)   | `FlowUI`                                                  | Multi-stage build using `windowsservercore-ltsc2022` for Windows Integrated Authentication (`FLOW_UI_AUTH_MODE=Windows`).                                                       |
-| [`docker-compose.yml`](./docker-compose.yml)                         | Linux (or Windows via env) | `FlowUI`                                                  | **Combination 1 (Default)**: Runs `FlowUI` only; connects to an existing external `go-flowAPI`.                                                                                 |
-| [`docker-compose.api.yml`](./docker-compose.api.yml)                 | Linux                      | `FlowUI` + `go-flow-api`                                  | **Combination 2**: Builds and runs both `FlowUI` and `../go-flowAPI` (with `../go-flow` build context); `go-flow-api` connects to an external SQL Server.                       |
-| [`docker-compose.full.yml`](./docker-compose.full.yml)               | Linux                      | `FlowUI` + `go-flow-api` + `sqlserver` + `sqlserver-init` | **Combination 3 (Full Stack)**: Self-contained stack with SQL Server 2022, automatic `EXAMPLE_DB` database & table initialization for `go-flowAPI`, `go-flowAPI`, and `FlowUI`. |
-| [`docker-compose.windows.yml`](./docker-compose.windows.yml)         | Windows                    | `FlowUI`                                                  | **Windows Container Mode**: Builds `Dockerfile.windows` with `FLOW_UI_AUTH_MODE=Windows`.                                                                                       |
-| [`docker/init/sqlserver-init.sql`](./docker/init/sqlserver-init.sql) | SQL Server                 | `sqlserver-init`                                          | Idempotent SQL script that creates the `EXAMPLE_DB` database and core `flow_*` / `pipeline_*` tables for `go-flowAPI` on startup.                                               |
-| [`.env.example`](./.env.example)                                     | Both                       | All                                                       | Template environment variables file for Docker Compose.                                                                                                                         |
+| File | Target OS | Services Included | Description |
+| :--- | :--- | :--- | :--- |
+| [`Dockerfile`](./Dockerfile) | **Linux** (Default) | `FlowUI` | Multi-stage build using `mcr.microsoft.com/dotnet/sdk:10.0` and `mcr.microsoft.com/dotnet/aspnet:10.0` (runs as non-root `$APP_UID`). |
+| [`Dockerfile.windows`](./Dockerfile.windows) | **Windows** (`ltsc2022`) | `FlowUI` | Multi-stage build using `windowsservercore-ltsc2022` for Windows Integrated Authentication (`FLOW_UI_AUTH_MODE=Windows`). |
+| [`docker-compose.yml`](./docker-compose.yml) | Linux (or Windows via env) | `FlowUI` | **Combination 1 (Default)**: Runs `FlowUI` only; connects to an existing external `go-flowAPI`. |
+| [`docker-compose.api.yml`](./docker-compose.api.yml) | Linux | `FlowUI` + `go-flow-api` | **Combination 2**: Builds and runs both `FlowUI` and `../go-flowAPI` (with `../go-flow` build context); `go-flow-api` connects to an external SQL Server. |
+| [`docker-compose.full.yml`](./docker-compose.full.yml) | Linux | `FlowUI` + `go-flow-api` + `sqlserver` + `sqlserver-init` | **Combination 3 (Full Stack)**: Self-contained stack with SQL Server 2022, automatic `EXAMPLE_DB` database & table initialization for `go-flowAPI`, `go-flowAPI`, and `FlowUI`. |
+| [`docker-compose.windows.yml`](./docker-compose.windows.yml) | Windows | `FlowUI` | **Windows Container Mode**: Builds `Dockerfile.windows` with `FLOW_UI_AUTH_MODE=Windows`. |
+| [`docker/init/sqlserver-init.sql`](./docker/init/sqlserver-init.sql) | SQL Server | `sqlserver-init` | Idempotent SQL script that creates the `EXAMPLE_DB` database and core `flow_*` / `pipeline_*` tables for `go-flowAPI` on startup. |
+| [`.env.example`](./.env.example) | Both | All | Template environment variables file for Docker Compose. |
 
 ---
 
@@ -31,13 +31,13 @@ Copy-Item .env.example .env
 
 ### `FlowUI` Environment Variables
 
-| Variable            | Default in Compose            | Description                                                                                                                                   |
-| :------------------ | :---------------------------- | :-------------------------------------------------------------------------------------------------------------------------------------------- |
-| `FLOW_UI_PORT`      | `5185`                        | Host and container HTTP port for `FlowUI`.                                                                                                    |
-| `FLOW_API_HOST`     | `http://host.docker.internal` | Base scheme + hostname for `go-flowAPI` (`http://go-flow-api` in `api`/`full` compose files).                                                 |
-| `FLOW_API_PORT`     | `8080`                        | Port for `go-flowAPI`.                                                                                                                        |
-| `FLOW_API_URL`      | _(optional)_                  | Full URL override for `go-flowAPI` (overrides `FLOW_API_HOST` + `FLOW_API_PORT` if set).                                                      |
-| `FLOW_UI_AUTH_MODE` | `ApiBasic`                    | Default authentication provider (`ApiBasic` or `Windows`). In `ApiBasic` mode, API requests use the credentials entered by the user at login. |
+| Variable | Default in Compose | Description |
+| :--- | :--- | :--- |
+| `FLOW_UI_PORT` | `5185` | Host and container HTTP port for `FlowUI`. |
+| `FLOW_API_HOST` | `http://host.docker.internal` | Base scheme + hostname for `go-flowAPI` (`http://go-flow-api` in `api`/`full` compose files). |
+| `FLOW_API_PORT` | `8080` | Port for `go-flowAPI`. |
+| `FLOW_API_URL` | *(optional)* | Full URL override for `go-flowAPI` (overrides `FLOW_API_HOST` + `FLOW_API_PORT` if set). |
+| `FLOW_UI_AUTH_MODE` | `ApiBasic` | Default authentication provider (`ApiBasic` or `Windows`). In `ApiBasic` mode, API requests use the credentials entered by the user at login. |
 
 ### `go-flowAPI` & `sqlserver` Variables (Used in `docker-compose.api.yml` & `docker-compose.full.yml`)
 
@@ -119,7 +119,6 @@ docker compose -f docker-compose.full.yml logs -f FlowUI go-flow-api
 ```
 
 Access the stack:
-
 - **FlowUI Web UI:** `http://localhost:5185` (Login via `ApiBasic` with `admin` / `Admin123!`)
 - **go-flowAPI Health:** `http://localhost:8080/api/v1/health`
 
