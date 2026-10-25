@@ -1,6 +1,6 @@
 # =============================================================================
-# Combination 2: FlowUIv2 + go-flowAPI (Linux Containers)
-# FlowUIv2 connects only to go-flowAPI; go-flowAPI connects to an external DB.
+# Combination 2: FlowUI + go-flowAPI (Linux Containers)
+# FlowUI connects only to go-flowAPI; go-flowAPI connects to an external DB.
 #
 # Usage:
 #   docker compose -f docker-compose.api.yml up -d --build
@@ -29,12 +29,12 @@ services:
       FLOW_SECURE_KEY: "${FLOW_SECURE_KEY:-}"
       FLOW_API_DEBUG: "${FLOW_API_DEBUG:-false}"
 
-  flowuiv2:
+  FlowUI:
     build:
       context: .
       dockerfile: ${FLOW_UI_DOCKERFILE:-Dockerfile}
-    image: flowuiv2:latest
-    container_name: flowuiv2
+    image: FlowUI:latest
+    container_name: FlowUI
     restart: unless-stopped
     depends_on:
       - go-flow-api

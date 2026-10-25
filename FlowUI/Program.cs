@@ -1,7 +1,7 @@
-using FlowUIv2.Components;
-using FlowUIv2.Config;
-using FlowUIv2.Services;
-using FlowUIv2.Services.Auth;
+using FlowUI.Components;
+using FlowUI.Config;
+using FlowUI.Services;
+using FlowUI.Services.Auth;
 using Microsoft.AspNetCore.Components.Authorization;
 using Radzen;
 

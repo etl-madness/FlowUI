@@ -1,26 +1,26 @@
 # =============================================================================
-# Combination 1 (Default): FlowUIv2 Only (Linux Container)
+# Combination 1 (Default): FlowUI Only (Linux Container)
 # Connects strictly to an existing external go-flowAPI (no direct DB connection).
 #
 # Usage:
 #   docker compose up -d --build
 #
 # Other combinations:
-#   - FlowUIv2 + go-flowAPI:
+#   - FlowUI + go-flowAPI:
 #       docker compose -f docker-compose.api.yml up -d --build
-#   - Full Stack (FlowUIv2 + go-flowAPI + SQL Server 2022):
+#   - Full Stack (FlowUI + go-flowAPI + SQL Server 2022):
 #       docker compose -f docker-compose.full.yml up -d --build
 #   - Windows Container (with Windows Integrated Auth):
 #       docker compose -f docker-compose.windows.yml up -d --build
 # =============================================================================
 
 services:
-  flowuiv2:
+  FlowUI:
     build:
       context: .
       dockerfile: ${FLOW_UI_DOCKERFILE:-Dockerfile}
-    image: flowuiv2:latest
-    container_name: flowuiv2
+    image: FlowUI:latest
+    container_name: FlowUI
     restart: unless-stopped
     ports:
       - "${FLOW_UI_PORT:-5185}:5185"

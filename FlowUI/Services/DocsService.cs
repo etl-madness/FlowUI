@@ -1,7 +1,7 @@
 using System.Text;
 using Markdig;
 
-namespace FlowUIv2.Services;
+namespace FlowUI.Services;
 
 /// <summary>
 /// Loads component markdown guides from ../go-flow/docs (or generates detailed reference guides from CatalogService)

@@ -1,7 +1,7 @@
 using System.Text;
-using FlowUIv2.Models;
+using FlowUI.Models;
 
-namespace FlowUIv2.Services;
+namespace FlowUI.Services;
 
 /// <summary>
 /// 1:1 port of go-flow/builder/xml_generator.go.

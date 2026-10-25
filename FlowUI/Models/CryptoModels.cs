@@ -1,6 +1,6 @@
 using System.Text.Json.Serialization;
 
-namespace FlowUIv2.Models;
+namespace FlowUI.Models;
 
 public sealed class CryptoKeygenRequest
 {
@@ -135,10 +135,16 @@ public sealed class CryptoSignResponse
     }
 
     [JsonPropertyName("encrypted")]
-    public bool Encrypted { get; set; }
+    public bool Encrypted
+    {
+        get; set;
+    }
 
     [JsonPropertyName("signed")]
-    public bool Signed { get; set; }
+    public bool Signed
+    {
+        get; set;
+    }
 }
 
 public sealed class CryptoVerifyRequest
@@ -182,7 +188,10 @@ public sealed class CryptoVerifyRequest
 public sealed class CryptoVerifyResponse
 {
     [JsonPropertyName("valid")]
-    public bool Valid { get; set; }
+    public bool Valid
+    {
+        get; set;
+    }
 
     [JsonPropertyName("verified")]
     public bool Verified
@@ -219,10 +228,16 @@ public sealed class CryptoVerifyResponse
     public string Fingerprint { get; set; } = string.Empty;
 
     [JsonPropertyName("encrypted")]
-    public bool Encrypted { get; set; }
+    public bool Encrypted
+    {
+        get; set;
+    }
 
     [JsonPropertyName("signed")]
-    public bool Signed { get; set; }
+    public bool Signed
+    {
+        get; set;
+    }
 
     [JsonPropertyName("unwrapped_content")]
     public string UnwrappedContent { get; set; } = string.Empty;
@@ -247,9 +262,18 @@ public sealed class CryptoVerifyResponse
 
 public sealed class EnvelopeInspectionResult
 {
-    public bool IsEncrypted { get; set; }
-    public bool IsSigned { get; set; }
-    public bool IsDetachedSignature { get; set; }
+    public bool IsEncrypted
+    {
+        get; set;
+    }
+    public bool IsSigned
+    {
+        get; set;
+    }
+    public bool IsDetachedSignature
+    {
+        get; set;
+    }
     public string SignatureFormat { get; set; } = string.Empty;
     public string SignatureBase64 { get; set; } = string.Empty;
     public string UnwrappedContent { get; set; } = string.Empty;

@@ -1,18 +1,18 @@
 # =============================================================================
-# FlowUIv2 Docker Compose (Project Directory Context)
+# FlowUI Docker Compose (Project Directory Context)
 # Connects strictly to go-flowAPI using the interactive user's login credentials.
 #
-# Usage (from FlowUIv2/ folder):
+# Usage (from FlowUI/ folder):
 #   docker compose up -d --build
 # =============================================================================
 
 services:
-  flowuiv2:
+  FlowUI:
     build:
       context: .
       dockerfile: Dockerfile
-    image: flowuiv2:latest
-    container_name: flowuiv2
+    image: FlowUI:latest
+    container_name: FlowUI
     restart: unless-stopped
     ports:
       - "${FLOW_UI_PORT:-5185}:5185"

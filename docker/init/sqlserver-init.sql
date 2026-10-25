@@ -1,5 +1,5 @@
 -- =============================================================================
--- SQL Server Initialization Script for FlowUIv2 + go-flowAPI (Database: EXAMPLE_DB)
+-- SQL Server Initialization Script for FlowUI + go-flowAPI (Database: EXAMPLE_DB)
 -- =============================================================================
 IF DB_ID('EXAMPLE_DB') IS NULL
 BEGIN

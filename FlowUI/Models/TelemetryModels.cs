@@ -1,6 +1,6 @@
 using System.Text.Json.Serialization;
 
-namespace FlowUIv2.Models;
+namespace FlowUI.Models;
 
 public sealed class PipelineRunRecord
 {
@@ -17,16 +17,28 @@ public sealed class PipelineRunRecord
     public string Status { get; set; } = string.Empty;
 
     [JsonPropertyName("started_at")]
-    public DateTime StartedAt { get; set; }
+    public DateTime StartedAt
+    {
+        get; set;
+    }
 
     [JsonPropertyName("finished_at")]
-    public DateTime FinishedAt { get; set; }
+    public DateTime FinishedAt
+    {
+        get; set;
+    }
 
     [JsonPropertyName("duration_ms")]
-    public long DurationMs { get; set; }
+    public long DurationMs
+    {
+        get; set;
+    }
 
     [JsonPropertyName("task_count")]
-    public int TaskCount { get; set; }
+    public int TaskCount
+    {
+        get; set;
+    }
 
     [JsonPropertyName("user_name")]
     public string UserName { get; set; } = string.Empty;
@@ -38,7 +50,10 @@ public sealed class PipelineRunRecord
     public string DbUserName { get; set; } = string.Empty;
 
     [JsonPropertyName("spid")]
-    public int Spid { get; set; }
+    public int Spid
+    {
+        get; set;
+    }
 
     [JsonPropertyName("application_name")]
     public string ApplicationName { get; set; } = string.Empty;
@@ -59,7 +74,10 @@ public sealed class PipelineRunRecord
 public sealed class PipelineEventRecord
 {
     [JsonPropertyName("id")]
-    public long Id { get; set; }
+    public long Id
+    {
+        get; set;
+    }
 
     [JsonPropertyName("run_id")]
     public string RunId { get; set; } = string.Empty;
@@ -68,10 +86,16 @@ public sealed class PipelineEventRecord
     public string ExecutionId { get; set; } = string.Empty;
 
     [JsonPropertyName("sequence_num")]
-    public long SequenceNum { get; set; }
+    public long SequenceNum
+    {
+        get; set;
+    }
 
     [JsonPropertyName("occurred_at")]
-    public DateTime OccurredAt { get; set; }
+    public DateTime OccurredAt
+    {
+        get; set;
+    }
 
     [JsonPropertyName("event_type")]
     public string EventType { get; set; } = string.Empty;
@@ -95,7 +119,10 @@ public sealed class PipelineEventRecord
     public string DbUserName { get; set; } = string.Empty;
 
     [JsonPropertyName("spid")]
-    public int Spid { get; set; }
+    public int Spid
+    {
+        get; set;
+    }
 
     [JsonPropertyName("application_name")]
     public string ApplicationName { get; set; } = string.Empty;
@@ -110,13 +137,22 @@ public sealed class PipelineEventRecord
     public string ErrorMessage { get; set; } = string.Empty;
 
     [JsonPropertyName("rows_read")]
-    public long RowsRead { get; set; }
+    public long RowsRead
+    {
+        get; set;
+    }
 
     [JsonPropertyName("rows_written")]
-    public long RowsWritten { get; set; }
+    public long RowsWritten
+    {
+        get; set;
+    }
 
     [JsonPropertyName("rows_affected")]
-    public long RowsAffected { get; set; }
+    public long RowsAffected
+    {
+        get; set;
+    }
 
     [JsonPropertyName("node_output")]
     public string NodeOutput { get; set; } = string.Empty;
@@ -125,10 +161,16 @@ public sealed class PipelineEventRecord
 public sealed class ApiAuditRecord
 {
     [JsonPropertyName("event_id")]
-    public long EventId { get; set; }
+    public long EventId
+    {
+        get; set;
+    }
 
     [JsonPropertyName("occurred_at")]
-    public DateTime OccurredAt { get; set; }
+    public DateTime OccurredAt
+    {
+        get; set;
+    }
 
     [JsonPropertyName("event_type")]
     public string EventType { get; set; } = string.Empty;
@@ -155,13 +197,19 @@ public sealed class ApiAuditRecord
     public string RemoteAddr { get; set; } = string.Empty;
 
     [JsonPropertyName("status_code")]
-    public int StatusCode { get; set; }
+    public int StatusCode
+    {
+        get; set;
+    }
 
     [JsonPropertyName("status")]
     public string Status { get; set; } = string.Empty;
 
     [JsonPropertyName("duration_ms")]
-    public long DurationMs { get; set; }
+    public long DurationMs
+    {
+        get; set;
+    }
 
     [JsonPropertyName("error_message")]
     public string ErrorMessage { get; set; } = string.Empty;
@@ -175,18 +223,39 @@ public sealed class ApiAuditRecord
 /// </summary>
 public sealed class UiEventRecord
 {
-    public long EventId { get; set; }
+    public long EventId
+    {
+        get; set;
+    }
     public DateTime OccurredAt { get; set; } = DateTime.UtcNow;
     public string Username { get; set; } = "anonymous";
     public string EventCategory { get; set; } = string.Empty;
     public string EventAction { get; set; } = string.Empty;
-    public string? ArtifactType { get; set; }
-    public string? ArtifactName { get; set; }
+    public string? ArtifactType
+    {
+        get; set;
+    }
+    public string? ArtifactName
+    {
+        get; set;
+    }
     public string Status { get; set; } = "succeeded";
-    public long? DurationMs { get; set; }
-    public string? ClientIp { get; set; }
-    public string? ErrorMessage { get; set; }
-    public string? DetailsJson { get; set; }
+    public long? DurationMs
+    {
+        get; set;
+    }
+    public string? ClientIp
+    {
+        get; set;
+    }
+    public string? ErrorMessage
+    {
+        get; set;
+    }
+    public string? DetailsJson
+    {
+        get; set;
+    }
 }
 
 public sealed class ExecutionStreamNodeEvent
@@ -204,7 +273,10 @@ public sealed class ExecutionStreamNodeEvent
     public string NodeKind
     {
         get => Kind;
-        set { if (!string.IsNullOrEmpty(value)) Kind = value; }
+        set
+        {
+            if (!string.IsNullOrEmpty(value)) Kind = value;
+        }
     }
 
     [JsonPropertyName("node_id")]
@@ -214,13 +286,19 @@ public sealed class ExecutionStreamNodeEvent
     public string Status { get; set; } = string.Empty;
 
     [JsonPropertyName("sequence")]
-    public long SequenceNum { get; set; }
+    public long SequenceNum
+    {
+        get; set;
+    }
 
     [JsonPropertyName("sequence_num")]
     public long SequenceNumAlt
     {
         get => SequenceNum;
-        set { if (value > 0) SequenceNum = value; }
+        set
+        {
+            if (value > 0) SequenceNum = value;
+        }
     }
 
     [JsonPropertyName("run_id")]
@@ -230,13 +308,22 @@ public sealed class ExecutionStreamNodeEvent
     public string ExecutionId { get; set; } = string.Empty;
 
     [JsonPropertyName("rows_read")]
-    public long RowsRead { get; set; }
+    public long RowsRead
+    {
+        get; set;
+    }
 
     [JsonPropertyName("rows_written")]
-    public long RowsWritten { get; set; }
+    public long RowsWritten
+    {
+        get; set;
+    }
 
     [JsonPropertyName("rows_affected")]
-    public long RowsAffected { get; set; }
+    public long RowsAffected
+    {
+        get; set;
+    }
 
     [JsonPropertyName("error")]
     public string ErrorMessage { get; set; } = string.Empty;
@@ -245,7 +332,10 @@ public sealed class ExecutionStreamNodeEvent
     public string ErrorMessageAlt
     {
         get => ErrorMessage;
-        set { if (!string.IsNullOrEmpty(value)) ErrorMessage = value; }
+        set
+        {
+            if (!string.IsNullOrEmpty(value)) ErrorMessage = value;
+        }
     }
 
     [JsonPropertyName("duration")]
@@ -258,7 +348,10 @@ public sealed class ExecutionStreamNodeEvent
     public string FormattedOutput { get; set; } = string.Empty;
 
     [JsonPropertyName("results")]
-    public List<ScriptStepResultDto>? Results { get; set; }
+    public List<ScriptStepResultDto>? Results
+    {
+        get; set;
+    }
 }
 
 public sealed class ScriptStepResultDto
@@ -270,7 +363,10 @@ public sealed class ScriptStepResultDto
     public string NodeIdAlt
     {
         get => ScriptId;
-        set { if (!string.IsNullOrEmpty(value)) ScriptId = value; }
+        set
+        {
+            if (!string.IsNullOrEmpty(value)) ScriptId = value;
+        }
     }
 
     [JsonIgnore]
@@ -299,10 +395,16 @@ public sealed class ScriptStepResultDto
     public string OutputRaw { get; set; } = string.Empty;
 
     [JsonPropertyName("error")]
-    public string? Error { get; set; }
+    public string? Error
+    {
+        get; set;
+    }
 
     [JsonExtensionData]
-    public Dictionary<string, System.Text.Json.JsonElement>? ExtraFields { get; set; }
+    public Dictionary<string, System.Text.Json.JsonElement>? ExtraFields
+    {
+        get; set;
+    }
 
     [JsonIgnore]
     public string EffectiveNodeOutput =>
@@ -354,11 +456,17 @@ public sealed class ExecutionStepResult
     public string NodeId { get; set; } = string.Empty;
     public string Kind { get; set; } = string.Empty;
     public string Status { get; set; } = "running";
-    public int ReturnCode { get; set; }
+    public int ReturnCode
+    {
+        get; set;
+    }
     public string DurationDisplay { get; set; } = "-";
     public string OutputSummary { get; set; } = string.Empty;
     public string NodeOutput { get; set; } = string.Empty;
-    public bool IsExpanded { get; set; }
+    public bool IsExpanded
+    {
+        get; set;
+    }
     public DateTime StartedAt { get; set; } = DateTime.UtcNow;
 }
 
@@ -366,87 +474,153 @@ public sealed class ExecutePipelineRequest
 {
     [JsonPropertyName("artifact_type")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public string? ArtifactType { get; set; }
+    public string? ArtifactType
+    {
+        get; set;
+    }
 
     [JsonPropertyName("id")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public int? Id { get; set; }
+    public int? Id
+    {
+        get; set;
+    }
 
     [JsonPropertyName("pipeline_id")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public int? PipelineId { get; set; }
+    public int? PipelineId
+    {
+        get; set;
+    }
 
     [JsonPropertyName("file")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public string? PipelineName { get; set; }
+    public string? PipelineName
+    {
+        get; set;
+    }
 
     [JsonPropertyName("file_xml")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public string? PipelineXml { get; set; }
+    public string? PipelineXml
+    {
+        get; set;
+    }
 
     [JsonPropertyName("options_id")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public int? OptionsId { get; set; }
+    public int? OptionsId
+    {
+        get; set;
+    }
 
     [JsonPropertyName("options")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public string? OptionsName { get; set; }
+    public string? OptionsName
+    {
+        get; set;
+    }
 
     [JsonPropertyName("options_xml")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public string? OptionsXml { get; set; }
+    public string? OptionsXml
+    {
+        get; set;
+    }
 
     [JsonPropertyName("config_id")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public int? ConfigId { get; set; }
+    public int? ConfigId
+    {
+        get; set;
+    }
 
     [JsonPropertyName("config")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public string? ConfigName { get; set; }
+    public string? ConfigName
+    {
+        get; set;
+    }
 
     [JsonPropertyName("config_xml")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public string? ConfigXml { get; set; }
+    public string? ConfigXml
+    {
+        get; set;
+    }
 
     [JsonPropertyName("vars")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public Dictionary<string, string>? Variables { get; set; }
+    public Dictionary<string, string>? Variables
+    {
+        get; set;
+    }
 
     [JsonPropertyName("vars_raw")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public string? VarsRaw { get; set; }
+    public string? VarsRaw
+    {
+        get; set;
+    }
 
     [JsonPropertyName("preflight")]
-    public bool PreflightOnly { get; set; }
+    public bool PreflightOnly
+    {
+        get; set;
+    }
 
     [JsonPropertyName("validate")]
-    public bool ValidateOnly { get; set; }
+    public bool ValidateOnly
+    {
+        get; set;
+    }
 
     [JsonPropertyName("format")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public string? Format { get; set; }
+    public string? Format
+    {
+        get; set;
+    }
 
     [JsonPropertyName("node_output")]
-    public bool LogNodeOutput { get; set; }
+    public bool LogNodeOutput
+    {
+        get; set;
+    }
 
     [JsonPropertyName("debug")]
-    public bool Debug { get; set; }
+    public bool Debug
+    {
+        get; set;
+    }
 
     [JsonPropertyName("encrypted")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
-    public bool Encrypted { get; set; }
+    public bool Encrypted
+    {
+        get; set;
+    }
 
     [JsonPropertyName("secure_key")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public string? SecureKey { get; set; }
+    public string? SecureKey
+    {
+        get; set;
+    }
 
     [JsonPropertyName("verify_signature")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
-    public bool VerifySignature { get; set; }
+    public bool VerifySignature
+    {
+        get; set;
+    }
 
     [JsonPropertyName("public_key")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public string? PublicKey { get; set; }
+    public string? PublicKey
+    {
+        get; set;
+    }
 
     [JsonPropertyName("verify_pub_key")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -458,7 +632,10 @@ public sealed class ExecutePipelineRequest
 
     [JsonPropertyName("cert")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public string? Cert { get; set; }
+    public string? Cert
+    {
+        get; set;
+    }
 
     [JsonPropertyName("verify_cert")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -470,7 +647,10 @@ public sealed class ExecutePipelineRequest
 
     [JsonPropertyName("ca_cert")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public string? CaCert { get; set; }
+    public string? CaCert
+    {
+        get; set;
+    }
 
     [JsonPropertyName("verify_ca_cert")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -482,7 +662,10 @@ public sealed class ExecutePipelineRequest
 
     [JsonPropertyName("keyring")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public string? Keyring { get; set; }
+    public string? Keyring
+    {
+        get; set;
+    }
 
     [JsonPropertyName("verify_keyring")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -494,7 +677,10 @@ public sealed class ExecutePipelineRequest
 
     [JsonPropertyName("signature")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public string? Signature { get; set; }
+    public string? Signature
+    {
+        get; set;
+    }
 
     [JsonPropertyName("pipeline_sig")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -514,13 +700,22 @@ public sealed class ExecutePipelineResponse
     public string Status { get; set; } = string.Empty;
 
     [JsonPropertyName("started_at")]
-    public DateTime StartedAt { get; set; }
+    public DateTime StartedAt
+    {
+        get; set;
+    }
 
     [JsonPropertyName("finished_at")]
-    public DateTime FinishedAt { get; set; }
+    public DateTime FinishedAt
+    {
+        get; set;
+    }
 
     [JsonPropertyName("duration_ms")]
-    public long DurationMs { get; set; }
+    public long DurationMs
+    {
+        get; set;
+    }
 
     [JsonPropertyName("format")]
     public string Format { get; set; } = string.Empty;
@@ -529,7 +724,10 @@ public sealed class ExecutePipelineResponse
     public string FormattedOutput { get; set; } = string.Empty;
 
     [JsonPropertyName("results")]
-    public List<ScriptStepResultDto>? Results { get; set; }
+    public List<ScriptStepResultDto>? Results
+    {
+        get; set;
+    }
 
     [JsonPropertyName("error_message")]
     public string ErrorMessage { get; set; } = string.Empty;
@@ -538,20 +736,29 @@ public sealed class ExecutePipelineResponse
     public string Error
     {
         get => ErrorMessage;
-        set { if (!string.IsNullOrEmpty(value)) ErrorMessage = value; }
+        set
+        {
+            if (!string.IsNullOrEmpty(value)) ErrorMessage = value;
+        }
     }
 }
 
 public sealed class DbPingTestResult
 {
     [JsonPropertyName("connected")]
-    public bool Connected { get; set; }
+    public bool Connected
+    {
+        get; set;
+    }
 
     [JsonPropertyName("dialect")]
     public string Dialect { get; set; } = string.Empty;
 
     [JsonPropertyName("spid")]
-    public int Spid { get; set; }
+    public int Spid
+    {
+        get; set;
+    }
 
     [JsonPropertyName("db_user")]
     public string DbUser { get; set; } = string.Empty;
@@ -562,7 +769,10 @@ public sealed class DbPingTestResult
     [JsonPropertyName("error")]
     public string Error { get; set; } = string.Empty;
 
-    public long LatencyMs { get; set; }
+    public long LatencyMs
+    {
+        get; set;
+    }
 }
 
 public sealed class ApiUserRecord
@@ -580,8 +790,14 @@ public sealed class ApiUserRecord
     public string Description { get; set; } = string.Empty;
 
     [JsonPropertyName("created_at")]
-    public DateTime CreatedAt { get; set; }
+    public DateTime CreatedAt
+    {
+        get; set;
+    }
 
     [JsonPropertyName("updated_at")]
-    public DateTime UpdatedAt { get; set; }
+    public DateTime UpdatedAt
+    {
+        get; set;
+    }
 }

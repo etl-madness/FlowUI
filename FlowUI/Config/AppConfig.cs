@@ -1,8 +1,8 @@
-namespace FlowUIv2.Config;
+namespace FlowUI.Config;
 
 /// <summary>
 /// Application configuration constants and environment-derived settings.
-/// FlowUIv2 communicates exclusively with go-flowAPI (no direct database connection).
+/// FlowUI communicates exclusively with go-flowAPI (no direct database connection).
 /// </summary>
 public static class AppConfig
 {
