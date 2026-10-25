@@ -1,9 +1,9 @@
 # syntax=docker/dockerfile:1
 # =============================================================================
-# FlowUIv2 - Linux Container Dockerfile (Default)
+# FlowUI - Linux Container Dockerfile (Default)
 # Target Framework: .NET 10.0 (ASP.NET Core Interactive Server Blazor)
 # Build from repository root:
-#   docker build -t flowuiv2:latest -f Dockerfile .
+#   docker build -t FlowUI:latest -f Dockerfile .
 # =============================================================================
 
 ARG DOTNET_VERSION=10.0
@@ -13,12 +13,12 @@ FROM mcr.microsoft.com/dotnet/sdk:${DOTNET_VERSION} AS build
 ARG BUILD_CONFIGURATION=Release
 WORKDIR /src
 
-COPY ["FlowUIv2/FlowUIv2.csproj", "FlowUIv2/"]
-RUN dotnet restore "FlowUIv2/FlowUIv2.csproj"
+COPY ["FlowUI/FlowUI.csproj", "FlowUI/"]
+RUN dotnet restore "FlowUI/FlowUI.csproj"
 
-COPY ["FlowUIv2/", "FlowUIv2/"]
-WORKDIR "/src/FlowUIv2"
-RUN dotnet publish "FlowUIv2.csproj" \
+COPY ["FlowUI/", "FlowUI/"]
+WORKDIR "/src/FlowUI"
+RUN dotnet publish "FlowUI.csproj" \
     -c ${BUILD_CONFIGURATION} \
     -o /app/publish \
     /p:UseAppHost=false
@@ -41,4 +41,4 @@ EXPOSE 5185
 COPY --from=build /app/publish .
 
 USER $APP_UID
-ENTRYPOINT ["dotnet", "FlowUIv2.dll"]
+ENTRYPOINT ["dotnet", "FlowUI.dll"]
