@@ -1,0 +1,332 @@
+@using System.Xml
+@using System.Xml.Linq
+@implements IDisposable
+@inject StudioStateService Studio
+@inject FlowCryptoService Crypto
+@inject IAuthenticationService Auth
+
+@if (Studio.IsUploadModalOpen)
+{
+    <div class="modal-overlay" @onclick="Studio.CloseUploadModal">
+        <div class="modal-box modal-lg" style="max-width:760px;" @onclick:stopPropagation="true">
+            <div class="modal-header">
+                <div style="display:flex; align-items:center; gap:8px;">
+                    <span>📂 Select Local XML File &amp; Upload to API</span>
+                </div>
+                <button type="button" class="btn btn-sm" @onclick="Studio.CloseUploadModal">✕</button>
+            </div>
+
+            <div class="modal-body" style="display:flex; flex-direction:column; gap:12px;">
+                <!-- Step 1: Select Local File -->
+                <div style="padding:12px 14px; background:rgba(59,130,246,0.08); border:1px dashed var(--accent); border-radius:8px; display:flex; flex-direction:column; gap:8px;">
+                    <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px;">
+                        <label style="font-weight:700; font-size:0.84rem; color:var(--text-main);">
+                            1. Choose Local XML File (<code>.xml</code>)
+                        </label>
+                        @if (!string.IsNullOrWhiteSpace(_selectedFileName))
+                        {
+                            <span class="badge badge-success">📄 @_selectedFileName (@_fileSizeDisplay)</span>
+                        }
+                    </div>
+                    <InputFile OnChange="OnFileSelectedAsync" accept=".xml,.enc,.sig,text/xml,application/xml,text/plain" class="form-control" style="padding:6px;" />
+                    <div class="form-help">
+                        Supports Pipeline (<code>&lt;pipeline&gt;</code>), Config (<code>&lt;pipeline&gt;</code> overrides/preflight), and Options (<code>&lt;flow_cli_options&gt;</code>) XML files, as well as encrypted (<code>FLOWENC:v1:</code>) and signed (<code>FLOWSIGNED:v1:</code>) envelopes.
+                    </div>
+                </div>
+
+                @if (!string.IsNullOrWhiteSpace(_errorMessage))
+                {
+                    <div style="padding:8px 12px; background:rgba(239,68,68,0.18); border:1px solid var(--danger); color:#fca5a5; border-radius:6px; font-size:0.8rem;">
+                        ⚠️ @_errorMessage
+                    </div>
+                }
+
+                <!-- Step 2: Artifact Type, Name, Description -->
+                <div style="display:grid; grid-template-columns:220px 1fr; gap:10px;">
+                    <div class="form-group" style="margin-bottom:0;">
+                        <label class="form-label">2. Target Artifact Type</label>
+                        <select class="form-control" @bind="_artifactType">
+                            <option value="pipeline">🔀 Pipeline (/api/v1/artifacts/pipeline)</option>
+                            <option value="config">⚙️ Config (/api/v1/artifacts/config)</option>
+                            <option value="options">🎛 Options (/api/v1/artifacts/options)</option>
+                        </select>
+                    </div>
+                    <div class="form-group" style="margin-bottom:0;">
+                        <label class="form-label">
+                            Artifact Name in API
+                            @if (ExistingArtifactMatch is not null)
+                            {
+                                <span style="color:#f59e0b; font-weight:600; margin-left:6px;">
+                                    (Matches existing #@ExistingArtifactMatch.Id — will update on upload)
+                                </span>
+                            }
+                        </label>
+                        <input class="form-control" @bind="_name" @bind:event="oninput" placeholder="e.g. github_ai_credit_usage, CONFIG_DEV, OPTIONS_DEFAULT" />
+                    </div>
+                </div>
+
+                <div style="display:grid; grid-template-columns:1fr auto auto; gap:10px; align-items:end;">
+                    <div class="form-group" style="margin-bottom:0;">
+                        <label class="form-label">Description</label>
+                        <input class="form-control" @bind="_description" @bind:event="oninput" placeholder="Description stored in database..." />
+                    </div>
+                    <div style="padding-bottom:6px;">
+                        <label style="display:flex; align-items:center; gap:6px; cursor:pointer; font-size:0.8rem;"
+                               title="Encrypt artifact content at rest using AES-256-GCM (FLOWENC:v1:)">
+                            <input type="checkbox" @bind="_encrypted" />
+                            <span>🔒 Encrypt in API Store</span>
+                        </label>
+                    </div>
+                    @if (_encrypted || Crypto.IsEncryptedContent(_xmlContent))
+                    {
+                        <div class="form-group" style="margin-bottom:0;">
+                            <label class="form-label" style="font-size:0.72rem;">AES-256-GCM Secure Key</label>
+                            <input type="password" class="form-control" style="width:185px;"
+                                   placeholder="Secure Key (optional)"
+                                   value="@Studio.SessionSecureKey"
+                                   @onchange="e => Studio.SetSessionSecureKey(e.Value?.ToString())" />
+                        </div>
+                    }
+                </div>
+
+                <!-- Step 3: XML Content Preview / Editor -->
+                <div style="display:flex; flex-direction:column; gap:4px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center;">
+                        <label class="form-label" style="margin-bottom:0;">3. XML Content Preview (Editable before upload)</label>
+                        <span style="font-size:0.74rem; color:var(--text-muted);">@(_xmlContent.Length.ToString("N0")) chars</span>
+                    </div>
+                    <textarea class="xml-editor" style="height:240px; border:1px solid var(--border); border-radius:6px;"
+                              @bind="_xmlContent" @bind:event="oninput"
+                              placeholder="Select a local .xml file above or paste XML content here..."
+                              spellcheck="false"></textarea>
+                </div>
+            </div>
+
+            <div class="modal-footer" style="display:flex; justify-content:space-between; align-items:center; width:100%;">
+                <button type="button" class="btn" @onclick="Studio.CloseUploadModal">Cancel</button>
+
+                <div style="display:flex; gap:8px;">
+                    <button type="button" class="btn"
+                            disabled="@(_isBusy || string.IsNullOrWhiteSpace(_xmlContent) || !CanUpload)"
+                            @onclick="LoadAsDraftOnlyAsync"
+                            title="Load into Visual Designer without saving to the database yet">
+                        🎨 Load into Designer Only
+                    </button>
+                    <button type="button" class="btn btn-primary"
+                            disabled="@(_isBusy || string.IsNullOrWhiteSpace(_xmlContent) || string.IsNullOrWhiteSpace(_name) || !CanUpload)"
+                            @onclick="UploadAndSaveToDbAsync"
+                            title="Upload and persist via go-flowAPI">
+                        @(_isBusy ? "Uploading..." : $"☁️ Upload & Save {_artifactType.ToUpperInvariant()} via API")
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private long _lastModalVersion = -1;
+    private string _artifactType = "pipeline";
+    private string _name = string.Empty;
+    private string _description = string.Empty;
+    private string _xmlContent = string.Empty;
+    private string _selectedFileName = string.Empty;
+    private string _fileSizeDisplay = string.Empty;
+    private string? _errorMessage;
+    private bool _encrypted;
+    private bool _isBusy;
+
+    private bool CanUpload => Auth.CurrentPermissions.CanCreate || Auth.CurrentPermissions.CanUpdate;
+
+    private ArtifactRecord? ExistingArtifactMatch
+    {
+        get
+        {
+            if (string.IsNullOrWhiteSpace(_name)) return null;
+            var list = _artifactType switch
+            {
+                "config" => Studio.Configs,
+                "options" => Studio.OptionsList,
+                _ => Studio.Pipelines
+            };
+            return list.FirstOrDefault(a => string.Equals(a.Name, _name.Trim(), StringComparison.OrdinalIgnoreCase));
+        }
+    }
+
+    protected override void OnInitialized()
+    {
+        Studio.OnChange += HandleStudioChanged;
+    }
+
+    private void HandleStudioChanged()
+    {
+        if (Studio.IsUploadModalOpen && _lastModalVersion != Studio.ModalVersion)
+        {
+            _lastModalVersion = Studio.ModalVersion;
+            _artifactType = Studio.UploadModalDefaultType;
+            _name = string.Empty;
+            _description = string.Empty;
+            _xmlContent = string.Empty;
+            _selectedFileName = string.Empty;
+            _fileSizeDisplay = string.Empty;
+            _errorMessage = null;
+            _encrypted = false;
+            _isBusy = false;
+        }
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    private async Task OnFileSelectedAsync(InputFileChangeEventArgs e)
+    {
+        _errorMessage = null;
+        try
+        {
+            var file = e.File;
+            if (file is null) return;
+
+            const long maxBytes = 10 * 1024 * 1024; // 10 MB limit
+            await using var stream = file.OpenReadStream(maxBytes);
+            using var reader = new StreamReader(stream);
+            var content = await reader.ReadToEndAsync();
+
+            _selectedFileName = file.Name;
+            _fileSizeDisplay = file.Size < 1024
+                ? $"{file.Size} B"
+                : $"{file.Size / 1024.0:F1} KB";
+            _xmlContent = content;
+
+            var baseName = Path.GetFileNameWithoutExtension(file.Name);
+            AutoDetectMetadataFromXml(content, baseName, file.Name);
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Failed to read file: {ex.Message}";
+        }
+    }
+
+    private void AutoDetectMetadataFromXml(string xmlText, string fallbackName, string fileName)
+    {
+        try
+        {
+            var (unwrappedXml, isEncrypted, needsKey, isSigned, sigFormat, _) = Studio.UnwrapEnvelopeForDesigner(xmlText);
+            if (isEncrypted)
+            {
+                _encrypted = true;
+            }
+            if (needsKey)
+            {
+                _name = fallbackName;
+                _description = $"Encrypted FLOWENC:v1 artifact uploaded from {fileName}";
+                return;
+            }
+
+            var settings = new XmlReaderSettings
+            {
+                DtdProcessing = DtdProcessing.Prohibit,
+                XmlResolver = null,
+                MaxCharactersInDocument = 10 * 1024 * 1024
+            };
+            using var strReader = new StringReader(unwrappedXml);
+            using var xmlReader = XmlReader.Create(strReader, settings);
+            var doc = XDocument.Load(xmlReader);
+            var root = doc.Root;
+            if (root is null) return;
+
+            var rootName = root.Name.LocalName;
+            if (string.Equals(rootName, "flow_cli_options", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(rootName, "options", StringComparison.OrdinalIgnoreCase))
+            {
+                _artifactType = "options";
+                _name = fallbackName;
+                _description = $"Flow CLI Options uploaded from {fileName}{(isSigned ? $" [Signed:{sigFormat}]" : "")}";
+                return;
+            }
+
+            if (string.Equals(rootName, "pipeline", StringComparison.OrdinalIgnoreCase))
+            {
+                var xmlName = root.Attribute("name")?.Value ?? root.Attribute("id")?.Value;
+                var xmlDesc = root.Attribute("description")?.Value;
+                var hasFlowElement = root.Elements().Any(el => string.Equals(el.Name.LocalName, "flow", StringComparison.OrdinalIgnoreCase));
+
+                if (fileName.Contains("config", StringComparison.OrdinalIgnoreCase) || !hasFlowElement)
+                {
+                    _artifactType = "config";
+                }
+                else
+                {
+                    _artifactType = "pipeline";
+                }
+
+                _name = !string.IsNullOrWhiteSpace(xmlName) ? xmlName.Trim() : fallbackName;
+                _description = !string.IsNullOrWhiteSpace(xmlDesc)
+                    ? xmlDesc.Trim()
+                    : $"Uploaded {_artifactType} from {fileName}{(isSigned ? $" [Signed:{sigFormat}]" : "")}";
+            }
+            else
+            {
+                _name = fallbackName;
+                _description = $"Uploaded from {fileName}";
+            }
+        }
+        catch (Exception ex)
+        {
+            _name = fallbackName;
+            _description = $"Uploaded from {fileName}";
+            _errorMessage = $"Note: XML parser warning ({ex.Message}). You can edit the XML below before uploading.";
+        }
+    }
+
+    private async Task UploadAndSaveToDbAsync()
+    {
+        _isBusy = true;
+        _errorMessage = null;
+        try
+        {
+            var saved = await Studio.UploadLocalArtifactToDbAsync(
+                _artifactType,
+                _name,
+                _description,
+                _xmlContent,
+                _encrypted,
+                loadIntoDesigner: true);
+
+            if (saved is not null)
+            {
+                Studio.CloseUploadModal();
+            }
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = ex.Message;
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private async Task LoadAsDraftOnlyAsync()
+    {
+        _isBusy = true;
+        _errorMessage = null;
+        try
+        {
+            var name = string.IsNullOrWhiteSpace(_name) ? $"draft_{DateTime.Now:HHmmss}" : _name;
+            await Studio.LoadLocalArtifactAsDraftAsync(_artifactType, name, _description, _xmlContent);
+            Studio.CloseUploadModal();
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = ex.Message;
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    public void Dispose()
+    {
+        Studio.OnChange -= HandleStudioChanged;
+    }
+}

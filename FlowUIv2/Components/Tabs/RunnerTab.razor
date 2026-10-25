@@ -1,0 +1,817 @@
+@using System.Diagnostics
+@inject StudioStateService Studio
+@inject FlowApiClient ApiClient
+@inject IAuthenticationService Auth
+
+<div class="workspace-full">
+    <div style="display:grid; grid-template-columns:420px 1fr; gap:18px; height:calc(100vh - 105px);">
+        <!-- Left Execution Controls -->
+        <div class="panel" style="border:1px solid var(--border); border-radius:8px;">
+            <div class="panel-header">
+                <span>▶ Pipeline Execution Runner</span>
+                <span class="perm-badge">@(Auth.CurrentPermissions.CanExecute ? "EXEC ENABLED" : "READ-ONLY")</span>
+            </div>
+
+            <div class="panel-body">
+                <div class="form-group">
+                    <label class="form-label">Pipeline Source</label>
+                    <select class="form-control" @bind="_pipelineSourceMode">
+                        <option value="draft">Active Designer Canvas Draft (@Studio.CurrentDraft.Name)</option>
+                        <option value="stored">Stored API Pipeline Artifact</option>
+                    </select>
+                </div>
+
+                @if (_pipelineSourceMode == "stored")
+                {
+                    <div class="form-group">
+                        <label class="form-label">Select Stored Pipeline</label>
+                        <select class="form-control" @bind="_selectedPipelineName">
+                            <option value="">-- Select Pipeline --</option>
+                            @foreach (var p in Studio.Pipelines)
+                            {
+                                <option value="@p.Name">@p.Name (#@p.Id)</option>
+                            }
+                        </select>
+                    </div>
+                }
+
+                <div class="form-group">
+                    <label class="form-label">CONFIG Artifact (Optional)</label>
+                    <select class="form-control" @bind="_selectedConfigName">
+                        <option value="">-- Server Default CONFIG --</option>
+                        @foreach (var c in Studio.Configs)
+                        {
+                            <option value="@c.Name">@c.Name (#@c.Id)</option>
+                        }
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">OPTIONS Artifact (Optional)</label>
+                    <select class="form-control" @bind="_selectedOptionsName">
+                        <option value="">-- None --</option>
+                        @foreach (var o in Studio.OptionsList)
+                        {
+                            <option value="@o.Name">@o.Name (#@o.Id)</option>
+                        }
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Runtime Variable Overrides (key=value per line)</label>
+                    <textarea class="form-control" rows="3" placeholder="env=staging&#10;batch_id=1042"
+                              @bind="_varsRaw"></textarea>
+                </div>
+
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:14px;">
+                    <div class="form-group" style="margin-bottom:0;">
+                        <label class="form-label">Output Format</label>
+                        <select class="form-control" @bind="_outputFormat">
+                            <option value="text">text (table)</option>
+                            <option value="json">json</option>
+                            <option value="xml">xml</option>
+                            <option value="yaml">yaml</option>
+                        </select>
+                    </div>
+                    <div style="display:flex; flex-direction:column; gap:6px; justify-content:center; padding-top:16px;">
+                        <label style="display:flex; align-items:center; gap:6px; cursor:pointer;">
+                            <input type="checkbox" @bind="_preflightOnly" />
+                            <span>Preflight Only</span>
+                        </label>
+                        <label style="display:flex; align-items:center; gap:6px; cursor:pointer;">
+                            <input type="checkbox" @bind="_logNodeOutput" />
+                            <span>Capture Node Output</span>
+                        </label>
+                    </div>
+                </div>
+
+                <!-- Crypto Decryption & Signature Verification Controls -->
+                <div style="padding:10px 12px; background:rgba(59,130,246,0.06); border:1px solid var(--border); border-radius:6px; margin-bottom:14px; display:flex; flex-direction:column; gap:8px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center;">
+                        <span style="font-weight:700; font-size:0.78rem;">🔐 Crypto Decryption &amp; Signature Verification</span>
+                        <button type="button" class="btn btn-sm" style="padding:1px 6px; font-size:0.7rem;" @onclick="Studio.OpenSignVerifyModal">
+                            ✍️ Keys / Sign
+                        </button>
+                    </div>
+
+                    <div class="form-group" style="margin-bottom:0;">
+                        <label class="form-label" style="font-size:0.72rem;">AES-256-GCM Secure Key (for <code>FLOWENC:v1:</code> Pipeline / Config / Options)</label>
+                        <input type="password" class="form-control" style="padding:5px 8px; font-size:0.78rem;"
+                               placeholder="Leave blank to use server FLOW_SECURE_KEY..."
+                               value="@Studio.SessionSecureKey"
+                               @onchange="e => Studio.SetSessionSecureKey(e.Value?.ToString())" />
+                    </div>
+
+                    <label style="display:flex; align-items:center; gap:6px; cursor:pointer; font-size:0.8rem;">
+                        <input type="checkbox" @bind="_verifySignature" />
+                        <span>Enforce Cryptographic Signature Verification (<code>-verify</code>)</span>
+                    </label>
+
+                    @if (_verifySignature)
+                    {
+                        <div class="form-group" style="margin-bottom:0;">
+                            <label class="form-label" style="font-size:0.72rem;">Verification Key Profile</label>
+                            <select class="form-control" style="padding:4px 8px; font-size:0.78rem;" @onchange="OnSelectVerifyProfile">
+                                <option value="">-- Use Active Verification Key in Session --</option>
+                                @foreach (var kp in Studio.SavedKeyProfiles)
+                                {
+                                    <option value="@kp.Name">@kp.Name (@kp.Format.ToUpperInvariant() / @kp.Algorithm)</option>
+                                }
+                            </select>
+                        </div>
+                        <div class="form-group" style="margin-bottom:0;">
+                            <label class="form-label" style="font-size:0.72rem;">Public Key / Certificate / GPG Keyring PEM</label>
+                            <textarea class="form-control" rows="2" style="font-family:monospace; font-size:0.72rem;"
+                                      placeholder="-----BEGIN PUBLIC KEY----- or -----BEGIN CERTIFICATE-----"
+                                      @bind="_verifyKeyPem"></textarea>
+                        </div>
+                    }
+                </div>
+
+                <div style="display:flex; flex-direction:column; gap:8px; margin-top:14px;">
+                    <button type="button" class="btn btn-success" style="justify-content:center; padding:10px;"
+                            disabled="@(_isRunning || !Auth.CurrentPermissions.CanExecute)"
+                            @onclick="RunStreamingAsync">
+                        ⚡ @(_isRunning ? "Running Live Stream..." : "Execute with Live SSE Stream (/api/v1/execute/stream)")
+                    </button>
+
+                    <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
+                        <button type="button" class="btn btn-primary" style="justify-content:center;"
+                                disabled="@(_isRunning || !Auth.CurrentPermissions.CanExecute)"
+                                @onclick="RunSynchronousAsync">
+                            ▶ Execute Sync (/execute)
+                        </button>
+                        <button type="button" class="btn" style="justify-content:center;"
+                                disabled="@_isRunning"
+                                @onclick="ValidateOnlyAsync">
+                            ✔ Validate Only (/validate)
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Right Live Stream Table & Terminal Output -->
+        <div class="panel" style="border:1px solid var(--border); border-radius:8px;">
+            <div class="panel-header">
+                <div style="display:flex; align-items:center; gap:10px;">
+                    <span>📡 Live Execution Telemetry &amp; Console</span>
+                    @if (!string.IsNullOrEmpty(_lastRunId))
+                    {
+                        <span class="section-badge">Run ID: <code>@_lastRunId</code></span>
+                    }
+                    @if (!string.IsNullOrEmpty(_lastStatus))
+                    {
+                        <span class="badge @GetBadgeClass(_lastStatus)">@_lastStatus</span>
+                    }
+                </div>
+                <button type="button" class="btn btn-sm" @onclick="ClearOutput">🧹 Clear Output</button>
+            </div>
+
+            <div class="panel-body" style="display:flex; flex-direction:column; gap:14px;">
+                <div>
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+                        <div style="font-weight:700; color:var(--text-muted); font-size:0.78rem; text-transform:uppercase;">
+                            Step Execution Progress (@_stepResults.Count steps)
+                            @if (IsNodeOutputSelected)
+                            {
+                                <span class="section-badge" style="margin-left:8px; text-transform:none;">📋 node_output capture active</span>
+                            }
+                        </div>
+                        @if (IsNodeOutputSelected && _stepResults.Any(s => !string.IsNullOrWhiteSpace(s.NodeOutput)))
+                        {
+                            <div style="display:flex; gap:6px;">
+                                <button type="button" class="btn btn-sm" @onclick="() => ToggleAllNodeOutputs(true)">▾ Expand All Outputs</button>
+                                <button type="button" class="btn btn-sm" @onclick="() => ToggleAllNodeOutputs(false)">▸ Collapse All</button>
+                            </div>
+                        }
+                    </div>
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>#</th>
+                                <th>Node ID</th>
+                                <th>Component</th>
+                                <th>Status</th>
+                                <th>Duration</th>
+                                <th>Details / Rows</th>
+                                @if (IsNodeOutputSelected)
+                                {
+                                    <th>Node Output (<code>node_output</code>)</th>
+                                }
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @if (_stepResults.Count == 0)
+                            {
+                                <tr>
+                                    <td colspan="@(IsNodeOutputSelected ? 7 : 6)" style="text-align:center; color:var(--text-muted); padding:18px;">
+                                        No execution steps recorded yet. Click "Execute with Live SSE Stream" to watch nodes execute in real time.
+                                    </td>
+                                </tr>
+                            }
+                            else
+                            {
+                                @for (int i = 0; i < _stepResults.Count; i++)
+                                {
+                                    var step = _stepResults[i];
+                                    var hasNodeOut = !string.IsNullOrWhiteSpace(step.NodeOutput);
+                                    <tr>
+                                        <td>@(i + 1)</td>
+                                        <td><code>@step.NodeId</code></td>
+                                        <td><span class="palette-tag">&lt;@(string.IsNullOrWhiteSpace(step.Kind) ? "step" : step.Kind)&gt;</span></td>
+                                        <td><span class="badge @GetBadgeClass(step.Status)">@step.Status</span></td>
+                                        <td>@step.DurationDisplay</td>
+                                        <td style="font-family:monospace; font-size:0.76rem;">@step.OutputSummary</td>
+                                        @if (IsNodeOutputSelected)
+                                        {
+                                            <td style="max-width:340px;">
+                                                @if (hasNodeOut)
+                                                {
+                                                    <div style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
+                                                        <span style="font-family:monospace; font-size:0.75rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:230px;"
+                                                              title="@step.NodeOutput">
+                                                            @FormatSingleLinePreview(step.NodeOutput)
+                                                        </span>
+                                                        <button type="button" class="btn btn-sm"
+                                                                @onclick="() => step.IsExpanded = !step.IsExpanded">
+                                                            @(step.IsExpanded ? "▾ Hide" : "🔍 View")
+                                                        </button>
+                                                    </div>
+                                                }
+                                                else
+                                                {
+                                                    <span style="color:var(--text-muted); font-size:0.74rem;">—</span>
+                                                }
+                                            </td>
+                                        }
+                                    </tr>
+                                    @if (IsNodeOutputSelected && hasNodeOut && step.IsExpanded)
+                                    {
+                                        <tr>
+                                            <td colspan="7" style="background:rgba(15,23,42,0.55); padding:10px 14px;">
+                                                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+                                                    <span style="font-size:0.75rem; font-weight:700; color:#93c5fd;">
+                                                        📋 Captured <code>node_output</code> for <code>@step.NodeId</code> (&lt;@(string.IsNullOrWhiteSpace(step.Kind) ? "step" : step.Kind)&gt;)
+                                                    </span>
+                                                    <button type="button" class="btn btn-sm" @onclick="() => step.IsExpanded = false">✕ Close</button>
+                                                </div>
+                                                <div class="terminal-output" style="max-height:240px; overflow:auto; margin:0; white-space:pre-wrap;">@step.NodeOutput</div>
+                                            </td>
+                                        </tr>
+                                    }
+                                }
+                            }
+                        </tbody>
+                    </table>
+                </div>
+
+                <div style="flex:1; display:flex; flex-direction:column;">
+                    <div style="font-weight:700; margin-bottom:6px; color:var(--text-muted); font-size:0.78rem; text-transform:uppercase;">
+                        Console / Formatted Output Stream
+                    </div>
+                    <div class="terminal-output" style="flex:1;">@(string.IsNullOrEmpty(_consoleLog) ? "Ready." : _consoleLog)</div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    private string _pipelineSourceMode = "draft";
+    private string _selectedPipelineName = string.Empty;
+    private string _selectedConfigName = string.Empty;
+    private string _selectedOptionsName = string.Empty;
+    private string _varsRaw = string.Empty;
+    private string _outputFormat = "text";
+    private bool _preflightOnly;
+    private bool _logNodeOutput = true;
+    private bool _verifySignature;
+    private string _verifyKeyPem = string.Empty;
+
+    private bool _isRunning;
+    private string _lastRunId = string.Empty;
+    private string _lastStatus = string.Empty;
+    private string _consoleLog = string.Empty;
+    private readonly List<ExecutionStepResult> _stepResults = new();
+
+    private bool IsNodeOutputSelected
+    {
+        get
+        {
+            if (_logNodeOutput)
+                return true;
+
+            if (!string.IsNullOrWhiteSpace(_selectedOptionsName))
+            {
+                var opt = Studio.OptionsList.FirstOrDefault(o =>
+                    string.Equals(o.Name, _selectedOptionsName, StringComparison.OrdinalIgnoreCase));
+                if (opt is not null && !string.IsNullOrWhiteSpace(opt.Content))
+                {
+                    if (opt.Content.Contains("node-output", StringComparison.OrdinalIgnoreCase) ||
+                        opt.Content.Contains("node_output", StringComparison.OrdinalIgnoreCase))
+                    {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }
+    }
+
+    private void ToggleAllNodeOutputs(bool expand)
+    {
+        foreach (var step in _stepResults)
+        {
+            if (!string.IsNullOrEmpty(step.NodeOutput))
+            {
+                step.IsExpanded = expand;
+            }
+        }
+    }
+
+    private static string FormatSingleLinePreview(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            return string.Empty;
+        var single = text.Replace("\r\n", " ↵ ").Replace("\n", " ↵ ").Trim();
+        return single.Length > 100 ? single[..100] + "..." : single;
+    }
+
+    private void MergeScriptResults(List<ScriptStepResultDto>? results, bool captureNodeOutput)
+    {
+        if (results is null || results.Count == 0)
+            return;
+
+        foreach (var r in results)
+        {
+            var id = string.IsNullOrWhiteSpace(r.NodeId) ? "step" : r.NodeId;
+            var existing = _stepResults.FirstOrDefault(s =>
+                string.Equals(s.NodeId, id, StringComparison.OrdinalIgnoreCase));
+
+            var nodeOut = captureNodeOutput ? r.EffectiveNodeOutput : string.Empty;
+
+            if (existing is null)
+            {
+                _stepResults.Add(new ExecutionStepResult
+                {
+                    NodeId = id,
+                    Kind = string.IsNullOrWhiteSpace(r.Kind) ? "step" : r.Kind,
+                    Status = r.EffectiveStatus,
+                    ReturnCode = r.EffectiveReturnCode,
+                    DurationDisplay = r.EffectiveDurationDisplay,
+                    OutputSummary = !string.IsNullOrEmpty(r.Error)
+                        ? r.Error
+                        : (!string.IsNullOrEmpty(nodeOut) ? FormatSingleLinePreview(nodeOut) : "OK"),
+                    NodeOutput = nodeOut,
+                    IsExpanded = !string.IsNullOrEmpty(nodeOut)
+                });
+            }
+            else
+            {
+                existing.ReturnCode = r.EffectiveReturnCode;
+                if (existing.DurationDisplay == "-" || string.IsNullOrWhiteSpace(existing.DurationDisplay))
+                {
+                    existing.DurationDisplay = r.EffectiveDurationDisplay;
+                }
+                if (captureNodeOutput && !string.IsNullOrEmpty(nodeOut))
+                {
+                    existing.NodeOutput = nodeOut;
+                    existing.IsExpanded = true;
+                }
+            }
+        }
+    }
+
+    private async Task EnrichStepsFromRunEventsAsync(string? runId, bool captureNodeOutput)
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(runId))
+            {
+                var recentRuns = await ApiClient.GetPipelineRunsAsync(limit: 5);
+                var latest = recentRuns.OrderByDescending(r => r.StartedAt).FirstOrDefault();
+                if (latest is not null && !string.IsNullOrWhiteSpace(latest.RunId))
+                {
+                    runId = latest.RunId;
+                    _lastRunId = latest.RunId;
+                    if (string.IsNullOrWhiteSpace(_lastStatus) ||
+                        string.Equals(_lastStatus, "RUNNING", StringComparison.OrdinalIgnoreCase))
+                    {
+                        _lastStatus = string.IsNullOrWhiteSpace(latest.Status) ? "COMPLETED" : latest.Status;
+                    }
+                }
+            }
+
+            if (string.IsNullOrWhiteSpace(runId))
+                return;
+
+            var events = await ApiClient.GetPipelineEventsAsync(runId, limit: 250);
+            if (events.Count == 0)
+                return;
+
+            foreach (var ev in events.OrderBy(e => e.SequenceNum))
+            {
+                if (string.IsNullOrWhiteSpace(ev.NodeId))
+                    continue;
+
+                var step = _stepResults.FirstOrDefault(s =>
+                    string.Equals(s.NodeId, ev.NodeId, StringComparison.OrdinalIgnoreCase));
+
+                var rowMetrics = (ev.RowsRead > 0 || ev.RowsWritten > 0 || ev.RowsAffected > 0)
+                    ? $"read={ev.RowsRead}, written={ev.RowsWritten}, affected={ev.RowsAffected}"
+                    : string.Empty;
+
+                if (step is null)
+                {
+                    step = new ExecutionStepResult
+                    {
+                        ExecutionId = ev.ExecutionId,
+                        NodeId = ev.NodeId,
+                        Kind = string.IsNullOrWhiteSpace(ev.NodeKind) ? "step" : ev.NodeKind,
+                        Status = string.IsNullOrWhiteSpace(ev.Status) ? "COMPLETED" : ev.Status,
+                        DurationDisplay = "-",
+                        OutputSummary = !string.IsNullOrEmpty(ev.ErrorMessage)
+                            ? ev.ErrorMessage
+                            : (!string.IsNullOrEmpty(rowMetrics) ? rowMetrics : "OK"),
+                        NodeOutput = captureNodeOutput ? (ev.NodeOutput ?? string.Empty) : string.Empty,
+                        IsExpanded = captureNodeOutput && !string.IsNullOrEmpty(ev.NodeOutput),
+                        StartedAt = ev.OccurredAt
+                    };
+                    _stepResults.Add(step);
+                }
+                else
+                {
+                    if (!string.IsNullOrWhiteSpace(ev.ExecutionId))
+                        step.ExecutionId = ev.ExecutionId;
+                    if (string.IsNullOrWhiteSpace(step.Kind) || step.Kind == "step")
+                        step.Kind = string.IsNullOrWhiteSpace(ev.NodeKind) ? step.Kind : ev.NodeKind;
+                    if (!string.IsNullOrWhiteSpace(ev.Status))
+                        step.Status = ev.Status;
+                    if (!string.IsNullOrEmpty(ev.ErrorMessage))
+                        step.OutputSummary = ev.ErrorMessage;
+                    else if (!string.IsNullOrEmpty(rowMetrics))
+                        step.OutputSummary = rowMetrics;
+
+                    if ((step.DurationDisplay == "-" || string.IsNullOrWhiteSpace(step.DurationDisplay)) &&
+                        ev.OccurredAt > step.StartedAt &&
+                        step.StartedAt != default)
+                    {
+                        var ms = (ev.OccurredAt - step.StartedAt).TotalMilliseconds;
+                        if (ms >= 0)
+                        {
+                            step.DurationDisplay = $"{ms:F0} ms";
+                        }
+                    }
+
+                    if (captureNodeOutput && !string.IsNullOrWhiteSpace(ev.NodeOutput))
+                    {
+                        step.NodeOutput = ev.NodeOutput;
+                        step.IsExpanded = true;
+                    }
+                }
+            }
+        }
+        catch
+        {
+            // Non-fatal if telemetry lookup fails
+        }
+    }
+
+    private void AppendCapturedNodeOutputsToConsole()
+    {
+        if (!IsNodeOutputSelected)
+            return;
+
+        foreach (var step in _stepResults.Where(s => !string.IsNullOrWhiteSpace(s.NodeOutput)))
+        {
+            AppendConsole($"--- [node_output] <{step.Kind}> {step.NodeId} (rc={step.ReturnCode}) ---\n{step.NodeOutput.TrimEnd()}");
+        }
+    }
+
+    private void OnSelectVerifyProfile(ChangeEventArgs e)
+    {
+        var name = e.Value?.ToString();
+        if (string.IsNullOrWhiteSpace(name)) return;
+        var kp = Studio.SavedKeyProfiles.FirstOrDefault(p => string.Equals(p.Name, name, StringComparison.OrdinalIgnoreCase));
+        if (kp is null) return;
+
+        if (!string.IsNullOrWhiteSpace(kp.CertificatePem))
+        {
+            _verifyKeyPem = kp.CertificatePem;
+            Studio.ActiveVerifyCertPem = kp.CertificatePem;
+        }
+        else if (!string.IsNullOrWhiteSpace(kp.PublicKeyPem))
+        {
+            _verifyKeyPem = kp.PublicKeyPem;
+            Studio.ActiveVerifyPublicKeyPem = kp.PublicKeyPem;
+        }
+    }
+
+    private ExecutePipelineRequest BuildRequest()
+    {
+        var req = new ExecutePipelineRequest
+        {
+            ConfigName = string.IsNullOrWhiteSpace(_selectedConfigName) ? null : _selectedConfigName,
+            OptionsName = string.IsNullOrWhiteSpace(_selectedOptionsName) ? null : _selectedOptionsName,
+            Format = _outputFormat,
+            PreflightOnly = _preflightOnly,
+            LogNodeOutput = IsNodeOutputSelected,
+            SecureKey = string.IsNullOrWhiteSpace(Studio.SessionSecureKey) ? null : Studio.SessionSecureKey,
+            VerifySignature = _verifySignature
+        };
+
+        if (_verifySignature)
+        {
+            var effectiveKey = !string.IsNullOrWhiteSpace(_verifyKeyPem)
+                ? _verifyKeyPem.Trim()
+                : (!string.IsNullOrWhiteSpace(Studio.ActiveVerifyCertPem)
+                    ? Studio.ActiveVerifyCertPem.Trim()
+                    : Studio.ActiveVerifyPublicKeyPem.Trim());
+
+            if (effectiveKey.Contains("BEGIN CERTIFICATE", StringComparison.OrdinalIgnoreCase))
+            {
+                req.VerifyCert = effectiveKey;
+                if (!string.IsNullOrWhiteSpace(Studio.ActiveVerifyCaCertPem))
+                {
+                    req.VerifyCaCert = Studio.ActiveVerifyCaCertPem;
+                }
+            }
+            else if (effectiveKey.Contains("PGP PUBLIC KEY", StringComparison.OrdinalIgnoreCase))
+            {
+                req.VerifyKeyring = effectiveKey;
+            }
+            else if (!string.IsNullOrWhiteSpace(effectiveKey))
+            {
+                req.VerifyPubKey = effectiveKey;
+            }
+        }
+
+        if (_pipelineSourceMode == "stored" && !string.IsNullOrWhiteSpace(_selectedPipelineName))
+        {
+            req.PipelineName = _selectedPipelineName;
+        }
+        else
+        {
+            Studio.RegenerateXmlFromDraft();
+            if (_verifySignature && Studio.CurrentDraft.Signed && !string.IsNullOrWhiteSpace(Studio.CurrentDraft.SignedEnvelopeContent))
+            {
+                req.PipelineXml = Studio.CurrentDraft.SignedEnvelopeContent;
+            }
+            else
+            {
+                req.PipelineXml = Studio.GeneratedXml;
+            }
+            if (_verifySignature && !string.IsNullOrWhiteSpace(Studio.CurrentDraft.DetachedSignatureContent))
+            {
+                req.PipelineSig = Studio.CurrentDraft.DetachedSignatureContent;
+            }
+            req.PipelineName = Studio.CurrentDraft.Name;
+        }
+
+        if (!string.IsNullOrWhiteSpace(_varsRaw))
+        {
+            var dict = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var line in _varsRaw.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            {
+                var eq = line.IndexOf('=');
+                if (eq > 0)
+                {
+                    dict[line[..eq].Trim()] = line[(eq + 1)..].Trim();
+                }
+            }
+            if (dict.Count > 0)
+                req.Variables = dict;
+        }
+
+        return req;
+    }
+
+    private async Task ValidateOnlyAsync()
+    {
+        _isRunning = true;
+        var sw = Stopwatch.StartNew();
+        try
+        {
+            var req = BuildRequest();
+            AppendConsole($"[{DateTime.Now:HH:mm:ss}] Validating pipeline '{req.PipelineName}' via /api/v1/validate...");
+            var resp = await ApiClient.ValidatePipelineAsync(req);
+            sw.Stop();
+            _lastStatus = resp.Status;
+
+            if (!string.IsNullOrEmpty(resp.ErrorMessage))
+            {
+                AppendConsole($"❌ Validation Error: {resp.ErrorMessage}");
+                Studio.ShowBanner($"Validation failed: {resp.ErrorMessage}", "error");
+                await Studio.LogEventAsync("RUNNER", "VALIDATE_PIPELINE", "pipeline", req.PipelineName, "INVALID", sw.ElapsedMilliseconds, resp.ErrorMessage);
+            }
+            else
+            {
+                AppendConsole($"✔ Pipeline XML is valid ({sw.ElapsedMilliseconds} ms).");
+                Studio.ShowBanner("Pipeline validation succeeded.", "success");
+                await Studio.LogEventAsync("RUNNER", "VALIDATE_PIPELINE", "pipeline", req.PipelineName, "SUCCESS", sw.ElapsedMilliseconds, null);
+            }
+        }
+        catch (Exception ex)
+        {
+            AppendConsole($"❌ Exception: {ex.Message}");
+        }
+        finally
+        {
+            _isRunning = false;
+        }
+    }
+
+    private async Task RunSynchronousAsync()
+    {
+        if (!Auth.CurrentPermissions.CanExecute)
+        {
+            Studio.ShowBanner("Permission denied: Execute permission required.", "error");
+            return;
+        }
+
+        _isRunning = true;
+        _stepResults.Clear();
+        var sw = Stopwatch.StartNew();
+        var req = BuildRequest();
+        var captureNodeOutput = IsNodeOutputSelected;
+
+        try
+        {
+            AppendConsole($"[{DateTime.Now:HH:mm:ss}] Executing pipeline '{req.PipelineName}' synchronously via /api/v1/execute (node_output={(captureNodeOutput ? "ON" : "OFF")})...");
+            var resp = await ApiClient.ExecutePipelineSyncAsync(req);
+            sw.Stop();
+
+            _lastRunId = resp.RunId;
+            _lastStatus = resp.Status;
+
+            MergeScriptResults(resp.Results, captureNodeOutput);
+            await EnrichStepsFromRunEventsAsync(_lastRunId, captureNodeOutput);
+
+            if (!string.IsNullOrEmpty(resp.FormattedOutput))
+            {
+                AppendConsole(resp.FormattedOutput);
+            }
+            else
+            {
+                AppendCapturedNodeOutputsToConsole();
+            }
+
+            if (!string.IsNullOrEmpty(resp.ErrorMessage))
+            {
+                AppendConsole($"ERROR: {resp.ErrorMessage}");
+            }
+
+            AppendConsole($"[{DateTime.Now:HH:mm:ss}] Finished with status {resp.Status} in {sw.ElapsedMilliseconds} ms.");
+            await Studio.LogEventAsync("RUNNER", "EXECUTE_SYNC", "pipeline", req.PipelineName, resp.Status, sw.ElapsedMilliseconds,
+                string.IsNullOrEmpty(resp.ErrorMessage) ? null : resp.ErrorMessage,
+                new { runId = resp.RunId, captureNodeOutput });
+        }
+        catch (Exception ex)
+        {
+            sw.Stop();
+            _lastStatus = "FAILED";
+            AppendConsole($"❌ Execution Exception: {ex.Message}");
+            await Studio.LogEventAsync("RUNNER", "EXECUTE_SYNC", "pipeline", req.PipelineName, "ERROR", sw.ElapsedMilliseconds, ex.Message);
+        }
+        finally
+        {
+            _isRunning = false;
+        }
+    }
+
+    private async Task RunStreamingAsync()
+    {
+        if (!Auth.CurrentPermissions.CanExecute)
+        {
+            Studio.ShowBanner("Permission denied: Execute permission required.", "error");
+            return;
+        }
+
+        _isRunning = true;
+        _stepResults.Clear();
+        _lastRunId = string.Empty;
+        _lastStatus = "RUNNING";
+        var sw = Stopwatch.StartNew();
+        var req = BuildRequest();
+        var captureNodeOutput = IsNodeOutputSelected;
+
+        try
+        {
+            AppendConsole($"[{DateTime.Now:HH:mm:ss}] Opening SSE stream to /api/v1/execute/stream for '{req.PipelineName}' (node_output={(captureNodeOutput ? "ON" : "OFF")})...");
+            await InvokeAsync(StateHasChanged);
+
+            await ApiClient.ExecutePipelineStreamAsync(
+                req,
+                onNodeEvent: async evt =>
+                {
+                    if (!string.IsNullOrEmpty(evt.RunId))
+                        _lastRunId = evt.RunId;
+
+                    var existing = _stepResults.FirstOrDefault(s => s.NodeId == evt.NodeId && !string.IsNullOrEmpty(evt.NodeId));
+                    var summary = !string.IsNullOrEmpty(evt.ErrorMessage)
+                        ? evt.ErrorMessage
+                        : $"read={evt.RowsRead}, written={evt.RowsWritten}, affected={evt.RowsAffected}";
+
+                    var evtNodeOut = captureNodeOutput
+                        ? (!string.IsNullOrEmpty(evt.NodeOutput) ? evt.NodeOutput : evt.FormattedOutput)
+                        : string.Empty;
+
+                    if (existing is null)
+                    {
+                        _stepResults.Add(new ExecutionStepResult
+                        {
+                            NodeId = string.IsNullOrEmpty(evt.NodeId) ? $"seq_{evt.SequenceNum}" : evt.NodeId,
+                            Kind = evt.Kind,
+                            Status = evt.Status,
+                            DurationDisplay = string.IsNullOrEmpty(evt.Duration) ? "-" : evt.Duration,
+                            OutputSummary = summary,
+                            NodeOutput = evtNodeOut,
+                            IsExpanded = !string.IsNullOrEmpty(evtNodeOut)
+                        });
+                    }
+                    else
+                    {
+                        existing.Status = evt.Status;
+                        if (!string.IsNullOrEmpty(evt.Duration))
+                            existing.DurationDisplay = evt.Duration;
+                        existing.OutputSummary = summary;
+                        if (captureNodeOutput && !string.IsNullOrEmpty(evtNodeOut))
+                        {
+                            existing.NodeOutput = evtNodeOut;
+                            existing.IsExpanded = true;
+                        }
+                    }
+
+                    AppendConsole($"  → [{evt.EventType}] <{evt.Kind}> {evt.NodeId} : {evt.Status} {evt.ErrorMessage}");
+                    await InvokeAsync(StateHasChanged);
+                },
+                onDoneEvent: async doneEvt =>
+                {
+                    sw.Stop();
+                    if (!string.IsNullOrEmpty(doneEvt.RunId))
+                        _lastRunId = doneEvt.RunId;
+                    _lastStatus = string.IsNullOrEmpty(doneEvt.Status) ? "COMPLETED" : doneEvt.Status;
+
+                    MergeScriptResults(doneEvt.Results, captureNodeOutput);
+                    await EnrichStepsFromRunEventsAsync(_lastRunId, captureNodeOutput);
+
+                    if (!string.IsNullOrEmpty(doneEvt.FormattedOutput))
+                    {
+                        AppendConsole(doneEvt.FormattedOutput);
+                    }
+                    else
+                    {
+                        AppendCapturedNodeOutputsToConsole();
+                    }
+
+                    if (!string.IsNullOrEmpty(doneEvt.ErrorMessage))
+                    {
+                        AppendConsole($"❌ Stream Error: {doneEvt.ErrorMessage}");
+                    }
+                    AppendConsole($"[{DateTime.Now:HH:mm:ss}] Stream completed with status {_lastStatus} ({sw.ElapsedMilliseconds} ms).");
+                    await InvokeAsync(StateHasChanged);
+                });
+
+            await Studio.LogEventAsync("RUNNER", "EXECUTE_STREAM", "pipeline", req.PipelineName, _lastStatus, sw.ElapsedMilliseconds, null,
+                new { runId = _lastRunId, steps = _stepResults.Count, captureNodeOutput });
+        }
+        catch (Exception ex)
+        {
+            sw.Stop();
+            _lastStatus = "FAILED";
+            AppendConsole($"❌ Stream Exception: {ex.Message}");
+            await Studio.LogEventAsync("RUNNER", "EXECUTE_STREAM", "pipeline", req.PipelineName, "ERROR", sw.ElapsedMilliseconds, ex.Message);
+        }
+        finally
+        {
+            _isRunning = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private void AppendConsole(string line)
+    {
+        _consoleLog = string.IsNullOrEmpty(_consoleLog)
+            ? line
+            : $"{_consoleLog}\n{line}";
+    }
+
+    private void ClearOutput()
+    {
+        _stepResults.Clear();
+        _consoleLog = string.Empty;
+        _lastRunId = string.Empty;
+        _lastStatus = string.Empty;
+    }
+
+    private static string GetBadgeClass(string status)
+    {
+        if (string.IsNullOrEmpty(status)) return "badge-running";
+        var s = status.ToUpperInvariant();
+        if (s.Contains("SUCC") || s.Contains("OK") || s.Contains("COMP") || s.Contains("VALID")) return "badge-success";
+        if (s.Contains("FAIL") || s.Contains("ERR") || s.Contains("INVALID")) return "badge-error";
+        if (s.Contains("RUN") || s.Contains("START")) return "badge-running";
+        return "badge-warn";
+    }
+}

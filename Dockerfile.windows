@@ -1,0 +1,42 @@
+# escape=`
+# =============================================================================
+# FlowUIv2 - Windows Container Dockerfile
+# Supports Windows Integrated Authentication (SSPI / Active Directory / gMSA)
+# and Trusted_Connection=True against SQL Server.
+# Build from repository root (requires Docker Desktop in Windows containers mode):
+#   docker build -t flowuiv2:windows -f Dockerfile.windows .
+# =============================================================================
+
+ARG SDK_IMAGE=mcr.microsoft.com/dotnet/sdk:10.0-windowsservercore-ltsc2022
+ARG RUNTIME_IMAGE=mcr.microsoft.com/dotnet/aspnet:10.0-windowsservercore-ltsc2022
+
+# Stage 1: Restore & Publish
+FROM ${SDK_IMAGE} AS build
+ARG BUILD_CONFIGURATION=Release
+WORKDIR C:\src
+
+COPY ["FlowUIv2/FlowUIv2.csproj", "FlowUIv2/"]
+RUN dotnet restore "FlowUIv2/FlowUIv2.csproj"
+
+COPY ["FlowUIv2/", "FlowUIv2/"]
+WORKDIR C:\src\FlowUIv2
+RUN dotnet publish "FlowUIv2.csproj" `
+    -c %BUILD_CONFIGURATION% `
+    -o C:\app\publish `
+    /p:UseAppHost=false
+
+# Stage 2: Windows Server Core Runtime (includes SSPI/Kerberos for Windows Auth)
+FROM ${RUNTIME_IMAGE} AS final
+WORKDIR C:\app
+
+ENV ASPNETCORE_ENVIRONMENT=Production `
+    DOTNET_RUNNING_IN_CONTAINER=true `
+    FLOW_UI_PORT=5185 `
+    ASPNETCORE_URLS=http://+:5185 `
+    FLOW_UI_AUTH_MODE=Windows
+
+EXPOSE 5185
+
+COPY --from=build C:\app\publish .
+
+ENTRYPOINT ["dotnet", "FlowUIv2.dll"]

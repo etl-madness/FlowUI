@@ -1,0 +1,822 @@
+@inject StudioStateService Studio
+@inject FlowApiClient ApiClient
+@inject FlowCryptoService Crypto
+@inject IAuthenticationService Auth
+@inject IJSRuntime JS
+
+<div class="workspace-full">
+    <div style="display:flex; gap:8px; margin-bottom:16px; flex-wrap:wrap;">
+        <button type="button" class="btn @(_section == "artifacts" ? "btn-primary" : "")" @onclick='() => _section = "artifacts"'>
+            📦 Stored Artifacts: Pipelines, Configs &amp; Options (@TotalArtifactCount)
+        </button>
+        <button type="button" class="btn @(_section == "crypto" ? "btn-primary" : "")" @onclick='() => _section = "crypto"'>
+            🔐 Crypto &amp; Signing Keys (/api/v1/crypto) (@Studio.SavedKeyProfiles.Count)
+        </button>
+        <button type="button" class="btn @(_section == "api_users" ? "btn-primary" : "")" @onclick='() => _section = "api_users"'>
+            🔑 Backend API Users &amp; Permissions (/api/v1/users)
+        </button>
+        <button type="button" class="btn @(_section == "auth_provider" ? "btn-primary" : "")" @onclick='() => _section = "auth_provider"'>
+            🔐 Pluggable Authentication Service
+        </button>
+        <button type="button" class="btn @(_section == "db" ? "btn-primary" : "")" @onclick='() => _section = "db"'>
+            🗄 Database Connection Tester (/api/v1/db/test)
+        </button>
+    </div>
+
+    @if (_section == "artifacts")
+    {
+        var filteredArtifacts = GetFilteredArtifacts().ToList();
+        <div class="panel" style="border:1px solid var(--border); border-radius:8px;">
+            <div class="panel-header" style="flex-wrap:wrap; gap:10px;">
+                <div style="display:flex; align-items:center; gap:10px;">
+                    <span>📦 Stored API Artifacts Search &amp; Management</span>
+                    <span class="section-badge">@filteredArtifacts.Count of @TotalArtifactCount shown</span>
+                </div>
+                <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+                    <input class="form-control" style="width:280px;"
+                           placeholder="🔍 Search by name, type, ID, description, or XML..."
+                           @bind="_artifactSearchQuery" @bind:event="oninput" />
+                    <select class="form-control" style="width:185px;" @bind="_artifactTypeFilter">
+                        <option value="all">All Types (@TotalArtifactCount)</option>
+                        <option value="pipeline">🔀 Pipelines (@Studio.Pipelines.Count)</option>
+                        <option value="config">⚙️ Configs (@Studio.Configs.Count)</option>
+                        <option value="options">🎛 Options (@Studio.OptionsList.Count)</option>
+                    </select>
+                    @if (!string.IsNullOrWhiteSpace(_artifactSearchQuery) || _artifactTypeFilter != "all")
+                    {
+                        <button type="button" class="btn btn-sm" @onclick="ClearArtifactFilter">✕ Clear Filter</button>
+                    }
+                    <button type="button" class="btn btn-sm"
+                            disabled="@(!CanUploadArtifact)"
+                            @onclick='() => Studio.OpenUploadModal(_artifactTypeFilter == "all" ? "pipeline" : _artifactTypeFilter)'>
+                        📂 Upload File...
+                    </button>
+                    <button type="button" class="btn btn-sm" @onclick="Studio.RefreshHealthAndArtifactsAsync">
+                        🔄 Refresh
+                    </button>
+                </div>
+            </div>
+            <div class="panel-body" style="padding:0;">
+                <table class="data-table" style="margin-top:0;">
+                    <thead>
+                        <tr>
+                            <th style="width:75px;">ID</th>
+                            <th style="width:120px;">Type</th>
+                            <th style="width:240px;">Artifact Name</th>
+                            <th>Description</th>
+                            <th style="width:165px;">Security Status</th>
+                            <th style="width:155px;">Updated (UTC)</th>
+                            <th style="width:210px;">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @if (filteredArtifacts.Count == 0)
+                        {
+                            <tr>
+                                <td colspan="7" style="text-align:center; padding:24px; color:var(--text-muted);">
+                                    No stored Pipelines, Configs, or Options matched your filter criteria.
+                                </td>
+                            </tr>
+                        }
+                        else
+                        {
+                            @foreach (var item in filteredArtifacts)
+                            {
+                                <tr>
+                                    <td><code>#@item.Id</code></td>
+                                    <td>
+                                        <span class="badge @GetArtifactTypeBadge(item.Type)">
+                                            @GetArtifactTypeIcon(item.Type) @item.Type.ToUpperInvariant()
+                                        </span>
+                                    </td>
+                                    <td><strong>@item.Name</strong></td>
+                                    <td style="color:var(--text-muted);">@(string.IsNullOrWhiteSpace(item.Description) ? "—" : item.Description)</td>
+                                    <td>
+                                        <div style="display:flex; gap:4px; flex-wrap:wrap;">
+                                            @if (item.Encrypted)
+                                            {
+                                                <span class="badge badge-warn">🔒 Encrypted</span>
+                                            }
+                                            @if (item.Signed)
+                                            {
+                                                <span class="badge badge-success">✍️ Signed (@(string.IsNullOrWhiteSpace(item.SignatureFormat) ? "OPENSSL" : item.SignatureFormat.ToUpperInvariant()))</span>
+                                            }
+                                            @if (!item.Encrypted && !item.Signed)
+                                            {
+                                                <span style="color:var(--text-muted); font-size:0.76rem;">Plain XML</span>
+                                            }
+                                        </div>
+                                    </td>
+                                    <td style="font-size:0.76rem; color:var(--text-muted);">
+                                        @(item.UpdatedAt == default ? "—" : item.UpdatedAt.ToString("yyyy-MM-dd HH:mm"))
+                                    </td>
+                                    <td>
+                                        <div style="display:flex; gap:6px; align-items:center;">
+                                            <button type="button" class="btn btn-sm"
+                                                    @onclick="() => OpenArtifactInStudioAsync(item)"
+                                                    title="Open this artifact in Designer / Editor">
+                                                🎨 Open / Edit
+                                            </button>
+                                            <button type="button" class="btn btn-sm btn-danger"
+                                                    disabled="@(!CanDeleteArtifact)"
+                                                    @onclick="() => DeleteArtifactFromTableAsync(item)"
+                                                    title="Delete this artifact via go-flowAPI">
+                                                🗑 Delete
+                                            </button>
+                                        </div>
+                                    </td>
+                                </tr>
+                            }
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    }
+    else if (_section == "crypto")
+    {
+        <div style="display:grid; grid-template-columns:440px 1fr; gap:18px;">
+            <!-- Left: Session Encryption Key & Key Generator -->
+            <div style="display:flex; flex-direction:column; gap:16px;">
+                <div class="panel" style="border:1px solid var(--border); border-radius:8px;">
+                    <div class="panel-header">
+                        <span>🔒 Session AES-256-GCM Secure Key (<code>FLOWENC:v1:</code>)</span>
+                    </div>
+                    <div class="panel-body" style="display:flex; flex-direction:column; gap:10px;">
+                        <p style="font-size:0.78rem; color:var(--text-muted); margin:0; line-height:1.4;">
+                            Used to encrypt and decrypt Pipelines, Configs, and Options via PBKDF2-HMAC-SHA256 (100,000 iterations) + AES-256-GCM. Sent to <code>go-flowAPI</code> via <code>X-Flow-Secure-Key</code>.
+                        </p>
+                        <div class="form-group" style="margin-bottom:0;">
+                            <label class="form-label">Active Session Secure Key / Passphrase</label>
+                            <div style="display:flex; gap:6px;">
+                                <input type="@(_showSecureKey ? "text" : "password")" class="form-control"
+                                       placeholder="Leave blank to use go-flowAPI server FLOW_SECURE_KEY..."
+                                       value="@Studio.SessionSecureKey"
+                                       @oninput="e => Studio.SetSessionSecureKey(e.Value?.ToString())" />
+                                <button type="button" class="btn btn-sm" @onclick="() => _showSecureKey = !_showSecureKey">
+                                    @(_showSecureKey ? "🙈" : "👁")
+                                </button>
+                            </div>
+                        </div>
+                        <div style="display:flex; justify-content:space-between; align-items:center;">
+                            <span style="font-size:0.75rem; color:var(--text-muted);">
+                                Status: <strong>@(string.IsNullOrWhiteSpace(Studio.SessionSecureKey) ? "Using Server Default Key" : "Custom Session Key Active")</strong>
+                            </span>
+                            <button type="button" class="btn btn-sm" @onclick="Studio.OpenSignVerifyModal">
+                                ✍️ Open Sign / Verify Studio
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="panel" style="border:1px solid var(--border); border-radius:8px;">
+                    <div class="panel-header">
+                        <span>🔑 Generate Signing Keypair / X.509 Certificate (<code>/api/v1/crypto/keygen</code>)</span>
+                    </div>
+                    <div class="panel-body" style="display:flex; flex-direction:column; gap:10px;">
+                        <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
+                            <div class="form-group" style="margin-bottom:0;">
+                                <label class="form-label">Profile Name</label>
+                                <input class="form-control" @bind="_keygenProfileName" placeholder="prod_release_key" />
+                            </div>
+                            <div class="form-group" style="margin-bottom:0;">
+                                <label class="form-label">Algorithm</label>
+                                <select class="form-control" @bind="_keygenAlgorithm">
+                                    <option value="ed25519">Ed25519 (OpenSSL)</option>
+                                    <option value="ecdsa-p256">ECDSA P-256 (OpenSSL)</option>
+                                    <option value="ecdsa-p384">ECDSA P-384 (OpenSSL)</option>
+                                    <option value="rsa-2048">RSA-2048 (OpenSSL)</option>
+                                    <option value="rsa-4096">RSA-4096 (OpenSSL)</option>
+                                    <option value="x509-rsa">X.509 Certificate (PKCS#7 / CMS)</option>
+                                    <option value="gpg">GPG / OpenPGP RSA-3072</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
+                            <div class="form-group" style="margin-bottom:0;">
+                                <label class="form-label">Subject CN / Name</label>
+                                <input class="form-control" @bind="_keygenCommonName" placeholder="Flow Pipeline Signer" />
+                            </div>
+                            <div class="form-group" style="margin-bottom:0;">
+                                <label class="form-label">Email (for GPG / X.509)</label>
+                                <input class="form-control" @bind="_keygenEmail" placeholder="devops@flow.local" />
+                            </div>
+                        </div>
+                        <button type="button" class="btn btn-primary" disabled="@_isGeneratingKey" @onclick="GenerateKeyProfileInSettingsAsync">
+                            @(_isGeneratingKey ? "Generating..." : "⚡ Generate & Save Key Profile in Session")
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right: Saved Key Profiles Table -->
+            <div class="panel" style="border:1px solid var(--border); border-radius:8px;">
+                <div class="panel-header">
+                    <span>Saved Signing &amp; Verification Key Profiles (@Studio.SavedKeyProfiles.Count)</span>
+                    <button type="button" class="btn btn-sm" @onclick="Studio.OpenSignVerifyModal">
+                        ✍️ Sign / Verify Current Artifact
+                    </button>
+                </div>
+                <div class="panel-body" style="padding:0;">
+                    <table class="data-table" style="margin-top:0;">
+                        <thead>
+                            <tr>
+                                <th>Profile Name</th>
+                                <th>Format</th>
+                                <th>Algorithm</th>
+                                <th>Fingerprint</th>
+                                <th>Material</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @if (Studio.SavedKeyProfiles.Count == 0)
+                            {
+                                <tr>
+                                    <td colspan="6" style="text-align:center; padding:24px; color:var(--text-muted);">
+                                        No signing key profiles generated in this session yet. Use the generator on the left to create OpenSSL, PKCS#7 X.509, or GPG keys.
+                                    </td>
+                                </tr>
+                            }
+                            else
+                            {
+                                @foreach (var kp in Studio.SavedKeyProfiles)
+                                {
+                                    <tr>
+                                        <td><strong>@kp.Name</strong></td>
+                                        <td><span class="badge badge-running">@kp.Format.ToUpperInvariant()</span></td>
+                                        <td><code>@kp.Algorithm</code></td>
+                                        <td><code style="font-size:0.72rem;">@(string.IsNullOrWhiteSpace(kp.Fingerprint) ? "—" : kp.Fingerprint)</code></td>
+                                        <td style="font-size:0.74rem;">
+                                            @(!string.IsNullOrWhiteSpace(kp.PrivateKeyPem) ? "🔐 Priv " : "")
+                                            @(!string.IsNullOrWhiteSpace(kp.PublicKeyPem) ? "🔓 Pub " : "")
+                                            @(!string.IsNullOrWhiteSpace(kp.CertificatePem) ? "📜 Cert" : "")
+                                        </td>
+                                        <td>
+                                            <div style="display:flex; gap:5px; flex-wrap:wrap;">
+                                                <button type="button" class="btn btn-sm"
+                                                        @onclick="() => ActivateKeyProfileFromSettings(kp)"
+                                                        title="Load into active Sign/Verify session keys">
+                                                    ✔ Use
+                                                </button>
+                                                @if (!string.IsNullOrWhiteSpace(kp.PrivateKeyPem))
+                                                {
+                                                    <button type="button" class="btn btn-sm"
+                                                            @onclick='() => DownloadKeyFileAsync($"{kp.Name}.key.pem", kp.PrivateKeyPem)'
+                                                            title="Download Private Key">
+                                                        ⬇ .key
+                                                    </button>
+                                                }
+                                                @if (!string.IsNullOrWhiteSpace(kp.PublicKeyPem))
+                                                {
+                                                    <button type="button" class="btn btn-sm"
+                                                            @onclick='() => DownloadKeyFileAsync($"{kp.Name}.pub.pem", kp.PublicKeyPem)'
+                                                            title="Download Public Key">
+                                                        ⬇ .pub
+                                                    </button>
+                                                }
+                                                @if (!string.IsNullOrWhiteSpace(kp.CertificatePem))
+                                                {
+                                                    <button type="button" class="btn btn-sm"
+                                                            @onclick='() => DownloadKeyFileAsync($"{kp.Name}.crt.pem", kp.CertificatePem)'
+                                                            title="Download X.509 Certificate">
+                                                        ⬇ .crt
+                                                    </button>
+                                                }
+                                            </div>
+                                        </td>
+                                    </tr>
+                                }
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    }
+    else if (_section == "api_users")
+    {
+        <div style="display:grid; grid-template-columns:390px 1fr; gap:18px;">
+            <div class="panel" style="border:1px solid var(--border); border-radius:8px;">
+                <div class="panel-header">
+                    <span>Upsert Backend <code>go-flowAPI</code> User</span>
+                </div>
+                <div class="panel-body">
+                    <div class="form-group">
+                        <label class="form-label">API Username or Windows User / Group</label>
+                        <input class="form-control" autocomplete="off" @bind="_apiUsername" placeholder="api_operator, DOMAIN\user, or DOMAIN\group" />
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">API Password (leave blank for Windows User/Group)</label>
+                        <input type="password" class="form-control" autocomplete="new-password" @bind="_apiPassword" placeholder="Leave blank for DOMAIN\user or DOMAIN\group" />
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">API Permission Level</label>
+                        <select class="form-control" @bind="_apiPermission">
+                            <option value="read-only">read-only (R)</option>
+                            <option value="execution-only">execution-only (R · EXEC)</option>
+                            <option value="upload">upload (C · R · U)</option>
+                            <option value="write">write (C · R · U · D · EXEC)</option>
+                            <option value="all">all (ADMIN)</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Description</label>
+                        <input class="form-control" @bind="_apiDescription" placeholder="ETL Operator / Read-Only Analyst" />
+                    </div>
+                    <div class="form-group">
+                        <label style="display:flex; align-items:center; gap:6px;">
+                            <input type="checkbox" @bind="_apiIsActive" />
+                            <span>Account Active</span>
+                        </label>
+                    </div>
+
+                    <div style="display:flex; justify-content:space-between; gap:8px;">
+                        <button type="button" class="btn" @onclick="ResetApiUserForm">Clear</button>
+                        <button type="button" class="btn btn-primary" disabled="@(!CanManageUsers)" @onclick="SaveApiUserAsync">
+                            💾 Save API User (/api/v1/users)
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="panel" style="border:1px solid var(--border); border-radius:8px;">
+                <div class="panel-header">
+                    <span>Backend <code>go-flowAPI</code> Users (@_apiUsers.Count)</span>
+                    <button type="button" class="btn btn-sm" @onclick="LoadAllSettingsDataAsync">🔄 Refresh</button>
+                </div>
+                <div class="panel-body" style="padding:0;">
+                    <table class="data-table" style="margin-top:0;">
+                        <thead>
+                            <tr>
+                                <th>Username</th>
+                                <th>API Permission</th>
+                                <th>Mapped UI Permissions</th>
+                                <th>Active</th>
+                                <th>Description</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @if (_apiUsers.Count == 0)
+                            {
+                                <tr>
+                                    <td colspan="6" style="text-align:center; padding:18px; color:var(--text-muted);">
+                                        No API users returned (ensure you have admin permission on go-flowAPI).
+                                    </td>
+                                </tr>
+                            }
+                            else
+                            {
+                                @foreach (var au in _apiUsers)
+                                {
+                                    var mapped = FlowApiClient.MapApiPermissionToUser(au.Username, au.Permission, "ApiBasic", au.Description);
+                                    <tr>
+                                        <td><strong>@au.Username</strong></td>
+                                        <td><span class="perm-badge">@au.Permission</span></td>
+                                        <td><span class="perm-badge">@mapped.GetPermissions().ToSummaryBadge()</span></td>
+                                        <td>@(au.IsActive ? "✔ Active" : "✘ Disabled")</td>
+                                        <td>@au.Description</td>
+                                        <td>
+                                            <div style="display:flex; gap:5px;">
+                                                <button type="button" class="btn btn-sm" @onclick="() => PopulateApiUserForm(au)">✎ Edit</button>
+                                                @if (!string.Equals(au.Username, "admin", StringComparison.OrdinalIgnoreCase))
+                                                {
+                                                    <button type="button" class="btn btn-sm btn-danger"
+                                                            disabled="@(!CanManageUsers)"
+                                                            @onclick="() => DeleteApiUserAsync(au.Username)">
+                                                        ✕
+                                                    </button>
+                                                }
+                                            </div>
+                                        </td>
+                                    </tr>
+                                }
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    }
+    else if (_section == "auth_provider")
+    {
+        <div class="panel" style="border:1px solid var(--border); border-radius:8px; max-width:860px;">
+            <div class="panel-header">
+                <span>🔐 Pluggable Authentication Service Architecture (<code>IAuthenticationService</code> / <code>IUiAuthProvider</code>)</span>
+            </div>
+            <div class="panel-body">
+                <p style="color:var(--text-muted); margin-bottom:14px; line-height:1.5;">
+                    UI authentication is decoupled via <code>IAuthenticationService</code> and pluggable <code>IUiAuthProvider</code> strategies.
+                    You can switch the active authentication provider at runtime below or set the <code>FLOW_UI_AUTH_MODE</code> environment variable.
+                </p>
+
+                <div style="display:grid; grid-template-columns:1fr; gap:10px; margin-bottom:18px;">
+                    @foreach (var p in Auth.GetAvailableProviders())
+                    {
+                        var isActive = string.Equals(p.ProviderName, Auth.ActiveProviderName, StringComparison.OrdinalIgnoreCase);
+                        <div class="palette-item" style="padding:12px; border-color:@(isActive ? "var(--accent)" : "var(--border)");">
+                            <div class="palette-item-header">
+                                <div>
+                                    <strong style="font-size:0.95rem; color:#93c5fd;">@p.DisplayName</strong>
+                                    <code style="margin-left:8px;">@p.ProviderName</code>
+                                </div>
+                                @if (isActive)
+                                {
+                                    <span class="badge badge-success">ACTIVE PROVIDER</span>
+                                }
+                                else
+                                {
+                                    <button type="button" class="btn btn-sm btn-primary"
+                                            @onclick="() => SwitchAuthProviderAsync(p.ProviderName)">
+                                        Activate @p.ProviderName
+                                    </button>
+                                }
+                            </div>
+                            <div class="palette-desc" style="margin-top:4px;">
+                                Prompts for credentials: <strong>@(p.RequiresPasswordPrompt ? "Yes (Username + Password)" : "No (OS / Ambient Identity)")</strong>
+                            </div>
+                        </div>
+                    }
+                </div>
+
+                <div class="palette-item" style="padding:12px;">
+                    <div style="font-weight:700; margin-bottom:6px;">Current Session Principal</div>
+                    <div>User: <strong>@(Auth.CurrentUser?.Username ?? "Not signed in")</strong></div>
+                    <div>Provider: <code>@Auth.ActiveProviderName</code></div>
+                    <div>Effective Permissions: <span class="perm-badge">@Auth.CurrentPermissions.ToSummaryBadge()</span></div>
+                </div>
+            </div>
+        </div>
+    }
+    else if (_section == "db")
+    {
+        <div style="display:grid; grid-template-columns:430px 1fr; gap:18px;">
+            <div class="panel" style="border:1px solid var(--border); border-radius:8px;">
+                <div class="panel-header">
+                    <span>🗄 Test Database Connection via <code>go-flowAPI</code></span>
+                </div>
+                <div class="panel-body">
+                    <div class="form-group">
+                        <label class="form-label">Profile Name</label>
+                        <input class="form-control" @bind="_editProfile.Name" placeholder="default_db" />
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Driver</label>
+                        <select class="form-control" @bind="_editProfile.Driver">
+                            <option value="sqlserver">sqlserver</option>
+                            <option value="postgres">postgres</option>
+                            <option value="mysql">mysql</option>
+                            <option value="sqlite">sqlite</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Connection String / DSN (leave empty to test API default store)</label>
+                        <textarea class="form-control" rows="3" @bind="_editProfile.ConnectionString"></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Description</label>
+                        <input class="form-control" @bind="_editProfile.Description" />
+                    </div>
+
+                    <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                        <button type="button" class="btn" @onclick="TestViaFlowApiAsync">
+                            🌐 Ping via go-flowAPI (/api/v1/db/test)
+                        </button>
+                        <button type="button" class="btn btn-primary" @onclick="SaveDbProfileAsync">
+                            💾 Save Profile in Session
+                        </button>
+                    </div>
+
+                    @if (!string.IsNullOrEmpty(_pingResultMessage))
+                    {
+                        <div class="terminal-output" style="margin-top:12px;">@_pingResultMessage</div>
+                    }
+                </div>
+            </div>
+
+            <div class="panel" style="border:1px solid var(--border); border-radius:8px;">
+                <div class="panel-header">
+                    <span>Saved Session Database Profiles (@Studio.SavedDbProfiles.Count)</span>
+                </div>
+                <div class="panel-body" style="padding:0;">
+                    <table class="data-table" style="margin-top:0;">
+                        <thead>
+                            <tr>
+                                <th>Profile Name</th>
+                                <th>Driver</th>
+                                <th>Description</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var prof in Studio.SavedDbProfiles)
+                            {
+                                <tr>
+                                    <td><strong>@prof.Name</strong></td>
+                                    <td><code>@prof.Driver</code></td>
+                                    <td>@prof.Description</td>
+                                    <td>
+                                        <button type="button" class="btn btn-sm" @onclick="() => _editProfile = new SavedDatabaseProfile { Name = prof.Name, Driver = prof.Driver, ConnectionString = prof.ConnectionString, Description = prof.Description }">
+                                            Load / Test
+                                        </button>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private string _section = "artifacts";
+    private string _artifactSearchQuery = string.Empty;
+    private string _artifactTypeFilter = "all";
+    private List<ApiUserRecord> _apiUsers = new();
+
+    private SavedDatabaseProfile _editProfile = new()
+    {
+        Name = "api_default_store",
+        Driver = "sqlserver",
+        ConnectionString = string.Empty,
+        Description = "Backend go-flowAPI configured database connection"
+    };
+    private string _pingResultMessage = string.Empty;
+
+    private string _apiUsername = string.Empty;
+    private string _apiPassword = string.Empty;
+    private string _apiPermission = "write";
+    private string _apiDescription = string.Empty;
+    private bool _apiIsActive = true;
+
+    private bool _showSecureKey;
+    private string _keygenProfileName = "flow_signing_key";
+    private string _keygenAlgorithm = "ed25519";
+    private string _keygenCommonName = "Flow Studio Signer";
+    private string _keygenEmail = "devops@flow.local";
+    private bool _isGeneratingKey;
+
+    private async Task GenerateKeyProfileInSettingsAsync()
+    {
+        _isGeneratingKey = true;
+        try
+        {
+            var req = new CryptoKeygenRequest
+            {
+                Algorithm = _keygenAlgorithm,
+                CommonName = _keygenCommonName,
+                Email = _keygenEmail,
+                ValidDays = 365
+            };
+            CryptoKeygenResponse? gen = null;
+            try
+            {
+                gen = await ApiClient.CryptoKeygenAsync(req);
+            }
+            catch
+            {
+                // Fallback below
+            }
+            gen ??= Crypto.GenerateKeyPairLocal(_keygenAlgorithm, _keygenCommonName);
+
+            var profile = new SavedCryptoKeyProfile
+            {
+                Name = string.IsNullOrWhiteSpace(_keygenProfileName) ? $"key_{DateTime.Now:HHmmss}" : _keygenProfileName.Trim(),
+                Format = gen.Format,
+                Algorithm = gen.Algorithm,
+                PrivateKeyPem = gen.PrivateKeyPem,
+                PublicKeyPem = gen.PublicKeyPem,
+                CertificatePem = gen.CertificatePem,
+                Fingerprint = gen.Fingerprint,
+                CreatedAt = DateTime.UtcNow
+            };
+            Studio.UpsertSavedKeyProfile(profile);
+            ActivateKeyProfileFromSettings(profile);
+            Studio.ShowBanner($"Generated and saved {gen.Algorithm} key profile '{profile.Name}'.", "success");
+        }
+        catch (Exception ex)
+        {
+            Studio.ShowBanner($"Key generation failed: {ex.Message}", "error");
+        }
+        finally
+        {
+            _isGeneratingKey = false;
+        }
+    }
+
+    private void ActivateKeyProfileFromSettings(SavedCryptoKeyProfile kp)
+    {
+        Studio.ActiveSigningKeyPem = kp.PrivateKeyPem;
+        Studio.ActiveSigningCertPem = kp.CertificatePem;
+        Studio.ActiveVerifyPublicKeyPem = kp.PublicKeyPem;
+        Studio.ActiveVerifyCertPem = kp.CertificatePem;
+        Studio.ShowBanner($"Activated key profile '{kp.Name}' ({kp.Format.ToUpperInvariant()}) for signing & verification.", "info");
+    }
+
+    private async Task DownloadKeyFileAsync(string filename, string content)
+    {
+        await JS.InvokeVoidAsync("flowStudio.downloadXmlFile", filename, content);
+    }
+
+    private bool CanManageUsers => Auth.CurrentPermissions.IsAdmin;
+    private bool CanDeleteArtifact => Auth.CurrentPermissions.CanDelete;
+    private bool CanUploadArtifact => Auth.CurrentPermissions.CanCreate || Auth.CurrentPermissions.CanUpdate;
+    private int TotalArtifactCount => Studio.Pipelines.Count + Studio.Configs.Count + Studio.OptionsList.Count;
+
+    private IEnumerable<ArtifactRecord> GetFilteredArtifacts()
+    {
+        IEnumerable<ArtifactRecord> all = Studio.Pipelines
+            .Concat(Studio.Configs)
+            .Concat(Studio.OptionsList);
+
+        if (!string.IsNullOrWhiteSpace(_artifactTypeFilter) &&
+            !string.Equals(_artifactTypeFilter, "all", StringComparison.OrdinalIgnoreCase))
+        {
+            all = all.Where(a => string.Equals(a.Type, _artifactTypeFilter, StringComparison.OrdinalIgnoreCase));
+        }
+
+        if (!string.IsNullOrWhiteSpace(_artifactSearchQuery))
+        {
+            var q = _artifactSearchQuery.Trim();
+            all = all.Where(a =>
+                (a.Name?.Contains(q, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                (a.Description?.Contains(q, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                (a.Type?.Contains(q, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                a.Id.ToString().Contains(q, StringComparison.OrdinalIgnoreCase) ||
+                (a.Content?.Contains(q, StringComparison.OrdinalIgnoreCase) ?? false));
+        }
+
+        return all
+            .OrderBy(a => a.Type, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(a => a.Name, StringComparer.OrdinalIgnoreCase);
+    }
+
+    private void ClearArtifactFilter()
+    {
+        _artifactSearchQuery = string.Empty;
+        _artifactTypeFilter = "all";
+    }
+
+    private static string GetArtifactTypeBadge(string? type) => (type ?? string.Empty).ToLowerInvariant() switch
+    {
+        "config" => "badge-warn",
+        "options" => "badge-success",
+        _ => "badge-running"
+    };
+
+    private static string GetArtifactTypeIcon(string? type) => (type ?? string.Empty).ToLowerInvariant() switch
+    {
+        "config" => "⚙️",
+        "options" => "🎛",
+        _ => "🔀"
+    };
+
+    private async Task OpenArtifactInStudioAsync(ArtifactRecord item)
+    {
+        var normType = (item.Type ?? "pipeline").Trim().ToLowerInvariant();
+        await Studio.LoadArtifactRecordAsync(item, normType);
+        var targetTab = normType switch
+        {
+            "config" => "config",
+            "options" => "options",
+            _ => "pipeline"
+        };
+        await Studio.SetActiveTabAsync(targetTab);
+    }
+
+    private async Task DeleteArtifactFromTableAsync(ArtifactRecord item)
+    {
+        var normType = (item.Type ?? "pipeline").Trim().ToLowerInvariant();
+        await Studio.DeleteArtifactAsync(normType, item);
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAllSettingsDataAsync();
+    }
+
+    private async Task LoadAllSettingsDataAsync()
+    {
+        await Studio.RefreshHealthAndArtifactsAsync();
+        try
+        {
+            _apiUsers = await ApiClient.GetApiUsersAsync();
+        }
+        catch
+        {
+            // Ignore if API is offline or user is not admin
+        }
+    }
+
+    private void PopulateApiUserForm(ApiUserRecord u)
+    {
+        _apiUsername = u.Username;
+        _apiPassword = string.Empty;
+        _apiPermission = string.IsNullOrWhiteSpace(u.Permission) ? "write" : u.Permission;
+        _apiDescription = u.Description;
+        _apiIsActive = u.IsActive;
+    }
+
+    private void ResetApiUserForm()
+    {
+        _apiUsername = string.Empty;
+        _apiPassword = string.Empty;
+        _apiPermission = "write";
+        _apiDescription = string.Empty;
+        _apiIsActive = true;
+    }
+
+    private async Task SwitchAuthProviderAsync(string providerName)
+    {
+        if (!CanManageUsers)
+        {
+            Studio.ShowBanner("Admin permission required to switch authentication providers.", "error");
+            return;
+        }
+
+        Auth.SetActiveProvider(providerName);
+        Studio.ShowBanner($"Switched active UI Authentication Provider to '{providerName}'.", "info");
+        await Studio.LogEventAsync("AUTH", "SWITCH_PROVIDER", "auth_provider", providerName, "SUCCESS", 0, null);
+    }
+
+    private async Task TestViaFlowApiAsync()
+    {
+        if (!Auth.CurrentPermissions.IsAdmin && !Auth.CurrentPermissions.CanExecute)
+        {
+            Studio.ShowBanner("Admin or Execute permission required to test database connections.", "error");
+            return;
+        }
+
+        var res = await ApiClient.TestDatabaseViaApiAsync(_editProfile.ConnectionString);
+        _pingResultMessage = res.Connected
+            ? $"✔ go-flowAPI (/api/v1/db/test) Connected in {res.LatencyMs} ms\n  Dialect: {res.Dialect}\n  DB User: {res.DbUser}\n  SPID: {res.Spid}"
+            : $"❌ go-flowAPI DB Test Failed ({res.LatencyMs} ms): {res.Error}";
+        await Studio.LogEventAsync("DB", "PING_API_DB", "db_profile", _editProfile.Name, res.Connected ? "SUCCESS" : "FAILED", res.LatencyMs, res.Error);
+    }
+
+    private async Task SaveDbProfileAsync()
+    {
+        if (!Auth.CurrentPermissions.IsAdmin && !Auth.CurrentPermissions.CanUpdate)
+        {
+            Studio.ShowBanner("Admin or Update permission required to save database profiles.", "error");
+            return;
+        }
+
+        try
+        {
+            Studio.UpsertSavedDbProfile(_editProfile);
+            Studio.ShowBanner($"Saved database connection profile '{_editProfile.Name}' in session.", "success");
+            await Studio.LogEventAsync("DB", "SAVE_DB_PROFILE", "db_profile", _editProfile.Name, "SUCCESS", 0, null);
+        }
+        catch (Exception ex)
+        {
+            Studio.ShowBanner($"Failed saving DB profile: {ex.Message}", "error");
+        }
+    }
+
+    private async Task SaveApiUserAsync()
+    {
+        if (!CanManageUsers)
+        {
+            Studio.ShowBanner("Admin permission required to manage go-flowAPI users.", "error");
+            return;
+        }
+
+        try
+        {
+            await ApiClient.UpsertApiUserAsync(_apiUsername, _apiPassword, _apiPermission, _apiDescription, isActive: _apiIsActive);
+            await Auth.RefreshCurrentUserPermissionsAsync();
+            _apiUsers = await ApiClient.GetApiUsersAsync();
+            Studio.ShowBanner($"Saved go-flowAPI user '{_apiUsername}'.", "success");
+            await Studio.LogEventAsync("API_USERS", "UPSERT_API_USER", "api_user", _apiUsername, "SUCCESS", 0, null);
+        }
+        catch (Exception ex)
+        {
+            Studio.ShowBanner($"Failed saving API user: {ex.Message}", "error");
+        }
+    }
+
+    private async Task DeleteApiUserAsync(string username)
+    {
+        if (!CanManageUsers)
+        {
+            Studio.ShowBanner("Admin permission required to delete go-flowAPI users.", "error");
+            return;
+        }
+
+        try
+        {
+            await ApiClient.DeleteApiUserAsync(username);
+            _apiUsers = await ApiClient.GetApiUsersAsync();
+            Studio.ShowBanner($"Deleted go-flowAPI user '{username}'.", "info");
+            await Studio.LogEventAsync("API_USERS", "DELETE_API_USER", "api_user", username, "SUCCESS", 0, null);
+        }
+        catch (Exception ex)
+        {
+            Studio.ShowBanner($"Failed deleting API user: {ex.Message}", "error");
+        }
+    }
+}

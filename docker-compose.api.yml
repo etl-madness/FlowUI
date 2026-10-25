@@ -1,0 +1,51 @@
+# =============================================================================
+# Combination 2: FlowUIv2 + go-flowAPI (Linux Containers)
+# FlowUIv2 connects only to go-flowAPI; go-flowAPI connects to an external DB.
+#
+# Usage:
+#   docker compose -f docker-compose.api.yml up -d --build
+# =============================================================================
+
+services:
+  go-flow-api:
+    build:
+      context: ../go-flowAPI
+      dockerfile: Dockerfile
+      additional_contexts:
+        go-flow: ../go-flow
+    image: go-flow-api:latest
+    container_name: go-flow-api
+    restart: unless-stopped
+    ports:
+      - "${FLOW_API_PORT:-8080}:8080"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      FLOW_API_ADDR: ":8080"
+      FLOW_API_DSN: "${FLOW_API_DSN:-sqlserver://sa:${FLOW_DB_PASSWORD:-YourStrong!Passw0rd}@${FLOW_DB_SERVER:-host.docker.internal}:1433?database=${FLOW_DB_NAME:-EXAMPLE_DB}&trustServerCertificate=true}"
+      FLOW_API_BOOTSTRAP_USER: "${FLOW_UI_ADMIN_USER:-admin}"
+      FLOW_API_BOOTSTRAP_PASS: "${FLOW_UI_ADMIN_PASSWORD:-Admin123!}"
+      FLOW_API_BOOTSTRAP_PERM: "all"
+      FLOW_SECURE_KEY: "${FLOW_SECURE_KEY:-}"
+      FLOW_API_DEBUG: "${FLOW_API_DEBUG:-false}"
+
+  flowuiv2:
+    build:
+      context: .
+      dockerfile: ${FLOW_UI_DOCKERFILE:-Dockerfile}
+    image: flowuiv2:latest
+    container_name: flowuiv2
+    restart: unless-stopped
+    depends_on:
+      - go-flow-api
+    ports:
+      - "${FLOW_UI_PORT:-5185}:5185"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      ASPNETCORE_ENVIRONMENT: "${ASPNETCORE_ENVIRONMENT:-Production}"
+      ASPNETCORE_URLS: "http://+:5185"
+      FLOW_UI_PORT: "5185"
+      FLOW_API_HOST: "http://go-flow-api"
+      FLOW_API_PORT: "8080"
+      FLOW_UI_AUTH_MODE: "${FLOW_UI_AUTH_MODE:-ApiBasic}"

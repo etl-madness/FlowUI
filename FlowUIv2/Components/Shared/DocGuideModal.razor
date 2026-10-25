@@ -1,0 +1,42 @@
+@implements IDisposable
+@inject StudioStateService Studio
+@inject DocsService Docs
+
+@if (Studio.IsDocModalOpen)
+{
+    var html = Docs.GetGuideHtml(Studio.DocModalComponentType);
+
+    <div class="modal-overlay" @onclick="Studio.CloseDocModal">
+        <div class="modal-box modal-lg" @onclick:stopPropagation="true">
+            <div class="modal-header">
+                <div style="display:flex; align-items:center; gap:8px;">
+                    <span>📖 Component Guide:</span>
+                    <span class="palette-tag">&lt;@Studio.DocModalComponentType&gt;</span>
+                </div>
+                <button type="button" class="btn btn-sm" @onclick="Studio.CloseDocModal">✕</button>
+            </div>
+
+            <div class="modal-body doc-guide-body">
+                @((MarkupString)html)
+            </div>
+
+            <div class="modal-footer">
+                <button type="button" class="btn btn-primary" @onclick="Studio.CloseDocModal">Close Guide</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    protected override void OnInitialized()
+    {
+        Studio.OnChange += HandleStudioChanged;
+    }
+
+    private void HandleStudioChanged() => _ = InvokeAsync(StateHasChanged);
+
+    public void Dispose()
+    {
+        Studio.OnChange -= HandleStudioChanged;
+    }
+}

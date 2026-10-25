@@ -1,0 +1,214 @@
+@implements IDisposable
+@inject StudioStateService Studio
+@inject IAuthenticationService Auth
+
+@if (Studio.IsNodeEditModalOpen && Studio.EditingNode is not null && Studio.EditingComponentMeta is not null)
+{
+    var meta = Studio.EditingComponentMeta;
+    var dbConnections = Studio.GetAvailableDatabaseConnectionNames();
+    var canSave = Auth.CurrentPermissions.CanUpdate || Auth.CurrentPermissions.CanCreate;
+
+    <div class="modal-overlay" @onclick="Studio.CloseNodeEditModal">
+        <div class="modal-box" @onclick:stopPropagation="true">
+            <div class="modal-header">
+                <div style="display:flex; align-items:center; gap:8px;">
+                    <span class="palette-tag">&lt;@meta.Tag&gt;</span>
+                    <span>@(Studio.IsEditingExistingNode ? "Edit" : "Add") @meta.Name</span>
+                </div>
+                <div style="display:flex; gap:6px;">
+                    <button type="button" class="btn btn-sm" @onclick="() => Studio.OpenDocModal(meta.Type)">
+                        📖 Guide
+                    </button>
+                    <button type="button" class="btn btn-sm" @onclick="Studio.CloseNodeEditModal">✕</button>
+                </div>
+            </div>
+
+            <div class="modal-body">
+                @if (!string.IsNullOrEmpty(meta.Description))
+                {
+                    <div style="margin-bottom:14px; color:var(--text-muted); font-size:0.82rem;">
+                        @meta.Description
+                    </div>
+                }
+
+                @foreach (var attr in meta.Attributes)
+                {
+                    var currentVal = GetAttrValue(attr.Name);
+                    var isDbConnField = attr.Name.Equals("connection", StringComparison.OrdinalIgnoreCase)
+                                     || attr.Name.Equals("source_connection", StringComparison.OrdinalIgnoreCase)
+                                     || attr.Name.Equals("target_connection", StringComparison.OrdinalIgnoreCase);
+
+                    <div class="form-group">
+                        <label class="form-label">
+                            @attr.Label
+                            <code style="font-size:0.72rem; color:var(--text-muted);">(@attr.Name)</code>
+                            @if (attr.Required)
+                            {
+                                <span style="color:var(--danger);">*</span>
+                            }
+                        </label>
+
+                        @if (isDbConnField)
+                        {
+                            <div style="display:flex; gap:6px;">
+                                <select class="form-control" style="max-width:210px;" value="@currentVal" @onchange="e => SetAttrValue(attr.Name, e.Value?.ToString() ?? string.Empty)">
+                                    <option value="">-- Select DB --</option>
+                                    @foreach (var connName in dbConnections)
+                                    {
+                                        <option value="@connName">@connName</option>
+                                    }
+                                </select>
+                                <input class="form-control" value="@currentVal" placeholder="@attr.Placeholder"
+                                       @oninput="e => SetAttrValue(attr.Name, e.Value?.ToString() ?? string.Empty)" />
+                            </div>
+                        }
+                        else if (attr.Type == "select" && attr.Options is not null)
+                        {
+                            <select class="form-control" value="@currentVal" @onchange="e => SetAttrValue(attr.Name, e.Value?.ToString() ?? string.Empty)">
+                                @foreach (var opt in attr.Options)
+                                {
+                                    <option value="@opt">@opt</option>
+                                }
+                            </select>
+                        }
+                        else if (attr.Type == "boolean")
+                        {
+                            <select class="form-control" value="@currentVal" @onchange="e => SetAttrValue(attr.Name, e.Value?.ToString() ?? string.Empty)">
+                                <option value="">Default</option>
+                                <option value="true">true</option>
+                                <option value="false">false</option>
+                            </select>
+                        }
+                        else if (attr.Type == "textarea")
+                        {
+                            <textarea class="form-control" rows="4" placeholder="@attr.Placeholder"
+                                      value="@currentVal"
+                                      @oninput="e => SetAttrValue(attr.Name, e.Value?.ToString() ?? string.Empty)"></textarea>
+                        }
+                        else
+                        {
+                            <input class="form-control" placeholder="@attr.Placeholder"
+                                   value="@currentVal"
+                                   @oninput="e => SetAttrValue(attr.Name, e.Value?.ToString() ?? string.Empty)" />
+                        }
+
+                        @if (!string.IsNullOrEmpty(attr.Help))
+                        {
+                            <div class="form-help">@attr.Help</div>
+                        }
+                    </div>
+                }
+
+                @* Custom Attributes Box *@
+                <div class="form-group" style="padding-top:8px; border-top:1px solid var(--border);">
+                    <label class="form-label">Additional / Custom Attributes (Optional)</label>
+                    <div style="display:flex; gap:6px; margin-bottom:6px;">
+                        <input class="form-control" style="max-width:180px;" placeholder="attr_name" @bind="_customAttrKey" />
+                        <input class="form-control" placeholder="value" @bind="_customAttrVal" />
+                        <button type="button" class="btn btn-sm" @onclick="AddCustomAttribute">+ Set</button>
+                    </div>
+                    @{
+                        var knownNames = meta.Attributes.Select(a => a.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+                        var extraAttrs = _workingAttributes.Where(kv => !knownNames.Contains(kv.Key) && !string.IsNullOrEmpty(kv.Value)).ToList();
+                    }
+                    @if (extraAttrs.Count > 0)
+                    {
+                        <div class="node-attrs">
+                            @foreach (var kv in extraAttrs)
+                            {
+                                <span class="attr-pill">
+                                    <strong>@kv.Key:</strong> @kv.Value
+                                    <span style="cursor:pointer; color:var(--danger); margin-left:4px;" @onclick="() => _workingAttributes.Remove(kv.Key)">✕</span>
+                                </span>
+                            }
+                        </div>
+                    }
+                </div>
+
+                @if (meta.HasContent || !string.IsNullOrEmpty(_workingContent))
+                {
+                    <div class="form-group">
+                        <label class="form-label">@meta.ContentLabel</label>
+                        <textarea class="form-control" rows="7"
+                                  placeholder="Enter inner script, SQL query, JSON payload, or template content..."
+                                  @bind="_workingContent" @bind:event="oninput"></textarea>
+                    </div>
+                }
+            </div>
+
+            <div class="modal-footer">
+                <button type="button" class="btn" @onclick="Studio.CloseNodeEditModal">Cancel</button>
+                <button type="button" class="btn btn-primary" disabled="@(!canSave)" @onclick="HandleSaveAsync">
+                    💾 @(Studio.IsEditingExistingNode ? "Update Node" : "Add to Pipeline")
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private Dictionary<string, string> _workingAttributes = new(StringComparer.OrdinalIgnoreCase);
+    private string _workingContent = string.Empty;
+    private long _loadedModalVersion = -1;
+    private string _customAttrKey = string.Empty;
+    private string _customAttrVal = string.Empty;
+
+    protected override void OnInitialized()
+    {
+        Studio.OnChange += HandleStudioChanged;
+        SyncModalState();
+    }
+
+    protected override void OnParametersSet()
+    {
+        SyncModalState();
+    }
+
+    private void HandleStudioChanged()
+    {
+        SyncModalState();
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    private void SyncModalState()
+    {
+        if (Studio.IsNodeEditModalOpen && Studio.EditingNode is not null && _loadedModalVersion != Studio.ModalVersion)
+        {
+            _loadedModalVersion = Studio.ModalVersion;
+            _workingAttributes = new Dictionary<string, string>(Studio.EditingNode.Attributes, StringComparer.OrdinalIgnoreCase);
+            _workingContent = Studio.EditingNode.ContentText;
+            _customAttrKey = string.Empty;
+            _customAttrVal = string.Empty;
+        }
+        else if (!Studio.IsNodeEditModalOpen)
+        {
+            _loadedModalVersion = -1;
+        }
+    }
+
+    public void Dispose()
+    {
+        Studio.OnChange -= HandleStudioChanged;
+    }
+
+    private string GetAttrValue(string key) =>
+        _workingAttributes.TryGetValue(key, out var val) ? val : string.Empty;
+
+    private void SetAttrValue(string key, string value) =>
+        _workingAttributes[key] = value;
+
+    private void AddCustomAttribute()
+    {
+        if (!string.IsNullOrWhiteSpace(_customAttrKey))
+        {
+            _workingAttributes[_customAttrKey.Trim()] = _customAttrVal.Trim();
+            _customAttrKey = string.Empty;
+            _customAttrVal = string.Empty;
+        }
+    }
+
+    private async Task HandleSaveAsync()
+    {
+        await Studio.SaveNodeModalAsync(_workingAttributes, _workingContent);
+    }
+}

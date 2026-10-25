@@ -1,0 +1,480 @@
+@implements IDisposable
+@inject StudioStateService Studio
+@inject CatalogService Catalog
+@inject FlowApiClient ApiClient
+@inject IAuthenticationService Auth
+@inject IJSRuntime JS
+
+<div class="workspace">
+    <!-- LEFT PANE: Config Component Palette (Config-allowed components only) -->
+    <div class="panel">
+        @{
+            var paletteGroups = Catalog.GetGroupedByCategory(configOnly: true);
+            var totalPaletteCount = paletteGroups.Sum(g => g.Items.Count);
+        }
+        <div class="panel-header">
+            <span>🧩 Config Palette (@totalPaletteCount)</span>
+            <span class="section-badge">@paletteGroups.Count Categories</span>
+        </div>
+        <div style="padding:8px 12px; border-bottom:1px solid var(--border);">
+            <input class="form-control" placeholder="Search <tag> or component..."
+                   @bind="_paletteFilter" @bind:event="oninput" />
+        </div>
+        <div class="panel-body">
+            @foreach (var grp in paletteGroups)
+            {
+                var visible = grp.Items.Where(MatchesPaletteFilter).ToList();
+                if (visible.Count > 0)
+                {
+                    <div class="category-group">
+                        <div class="category-title">@grp.Category</div>
+                        @foreach (var comp in visible)
+                        {
+                            <div class="palette-item">
+                                <div class="palette-item-header">
+                                    <span class="palette-tag">&lt;@comp.Tag&gt;</span>
+                                    <div style="display:flex; gap:4px;">
+                                        <button type="button" class="btn btn-sm" title="Component Guide"
+                                                @onclick="() => Studio.OpenDocModal(comp.Type)">
+                                            📖
+                                        </button>
+                                        <button type="button" class="btn btn-sm btn-primary"
+                                                disabled="@(!CanAddNode)"
+                                                title="@($"Add <{comp.Tag}> to Config")"
+                                                @onclick="() => Studio.OpenAddNodeModal(comp.Type)">
+                                            + Add
+                                        </button>
+                                    </div>
+                                </div>
+                                <div style="font-weight:600; font-size:0.79rem;">@comp.Name</div>
+                                <div class="palette-desc">@comp.Description</div>
+                            </div>
+                        }
+                    </div>
+                }
+            }
+        </div>
+    </div>
+
+    <!-- CENTER PANE: Visual Config Designer Canvas -->
+    <div class="canvas-area">
+        <!-- Database Config Selector & Actions Toolbar -->
+        <div class="canvas-toolbar" style="flex-direction:column; align-items:stretch; gap:8px; padding:10px 16px;">
+            <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap;">
+                <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+                    <div style="display:flex; align-items:center; gap:4px;">
+                        <label style="font-weight:700; font-size:0.76rem; color:#f59e0b; white-space:nowrap;">
+                            ⚙️ Config (@Studio.Configs.Count):
+                        </label>
+                        <select class="form-control"
+                                style="width:230px; border-color:@(Studio.CurrentDraft.ApiArtifactId.HasValue ? "#f59e0b" : "var(--border)");"
+                                value="@EffectiveConfigId"
+                                @onchange="OnSelectConfigFromDbAsync">
+                            <option value="">-- Select DB Config --</option>
+                            @foreach (var c in Studio.Configs)
+                            {
+                                <option value="@c.Id">@c.Name (#@c.Id)</option>
+                            }
+                        </select>
+                        <button type="button" class="btn btn-sm"
+                                disabled="@(string.IsNullOrEmpty(EffectiveConfigId))"
+                                @onclick="EditSelectedConfigFromDbAsync"
+                                title="Load selected Config from database into designer for editing">
+                            ✎ Edit
+                        </button>
+                    </div>
+
+                    <button type="button" class="btn btn-sm" @onclick="Studio.RefreshHealthAndArtifactsAsync"
+                            title="Refresh Configs from go-flowAPI">
+                        🔄 Refresh API
+                    </button>
+
+                    <button type="button" class="btn btn-sm"
+                            disabled="@(!CanModifyCanvas)"
+                            @onclick='() => Studio.OpenUploadModal("config")'
+                            title="Select a local CONFIG .xml file and upload via go-flowAPI">
+                        📂 Upload File...
+                    </button>
+                </div>
+
+                <!-- Actions: New / Save / Delete / Validate / Clear -->
+                <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
+                    <button type="button" class="btn btn-sm" disabled="@(!Auth.CurrentPermissions.CanCreate)"
+                            @onclick='() => Studio.CreateNewArtifactDraftAsync("config")' title="Create a new Config draft">
+                        ➕ New Config
+                    </button>
+
+                    <button type="button" class="btn btn-sm btn-primary"
+                            disabled="@(!CanSaveConfig)"
+                            @onclick="() => Studio.SaveCurrentArtifactAsync()"
+                            title="Save active Config to database and go-flowAPI">
+                        💾 Save CONFIG@(Studio.CurrentDraft.IsDirty ? " *" : "")
+                    </button>
+
+                    <button type="button" class="btn btn-sm"
+                            @onclick="Studio.OpenSignVerifyModal"
+                            title="Sign or Verify active Config with OpenSSL, PKCS#7/CMS, or GPG">
+                        ✍️ @(Studio.CurrentDraft.Signed ? $"Signed ({Studio.CurrentDraft.SignatureFormat.ToUpperInvariant()})" : "Sign / Verify")
+                    </button>
+
+                    @if (Studio.CurrentDraft.ApiArtifactId.HasValue)
+                    {
+                        <button type="button" class="btn btn-sm btn-danger"
+                                disabled="@(!Auth.CurrentPermissions.CanDelete)"
+                                @onclick="DeleteSelectedConfigAsync"
+                                title="Delete current Config from database and go-flowAPI">
+                            🗑 Delete
+                        </button>
+                    }
+
+                    <button type="button" class="btn btn-sm" @onclick="ValidateCurrentConfigAsync" title="Validate Config XML against go-flowAPI /api/v1/validate">
+                        ✔ Validate
+                    </button>
+
+                    <button type="button" class="btn btn-sm btn-danger"
+                            disabled="@(!CanModifyCanvas)"
+                            @onclick="() => Studio.ClearCurrentSectionOrAllAsync(null)"
+                            title="Clear all nodes in this Config">
+                        🧹 Clear
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Active Config Metadata Row -->
+        <div style="padding:10px 16px; background:rgba(128,128,128,0.05); border-bottom:1px solid var(--border); display:grid; grid-template-columns:auto 230px 1fr auto auto; gap:10px; align-items:center;">
+            <div style="display:flex; align-items:center; gap:6px;">
+                <span class="badge badge-warn" style="font-size:0.75rem; padding:4px 8px;">
+                    ⚙️ EDITING CONFIG @(Studio.CurrentDraft.ApiArtifactId.HasValue ? $"(#{Studio.CurrentDraft.ApiArtifactId})" : "(NEW)")
+                </span>
+                @if (Studio.CurrentDraft.Signed)
+                {
+                    <span class="badge badge-success" style="font-size:0.72rem; cursor:pointer;" @onclick="Studio.OpenSignVerifyModal" title="Click to inspect or verify digital signature">
+                        ✍️ SIGNED (@(string.IsNullOrWhiteSpace(Studio.CurrentDraft.SignatureFormat) ? "OPENSSL" : Studio.CurrentDraft.SignatureFormat.ToUpperInvariant()))
+                    </span>
+                }
+            </div>
+            <div>
+                <input class="form-control" placeholder="Config Name (e.g. CONFIG_DEV_DEFAULT)"
+                       value="@Studio.CurrentDraft.Name"
+                       @oninput="OnNameChanged" />
+            </div>
+            <div>
+                <input class="form-control" placeholder="Config Description (variables, databases & preflight settings)"
+                       value="@Studio.CurrentDraft.Description"
+                       @oninput="OnDescriptionChanged" />
+            </div>
+            <div style="display:flex; align-items:center; gap:8px;">
+                <label style="display:flex; align-items:center; gap:6px; cursor:pointer; font-size:0.78rem; color:var(--text-secondary); white-space:nowrap;"
+                       title="Encrypt Config content at rest using AES-256-GCM (FLOWENC:v1:)">
+                    <input type="checkbox" checked="@Studio.CurrentDraft.Encrypted" @onchange="OnEncryptedChanged" />
+                    <span>🔒 Encrypt</span>
+                </label>
+                @if (Studio.CurrentDraft.Encrypted)
+                {
+                    <input type="password" class="form-control" style="width:150px; padding:3px 7px; font-size:0.74rem;"
+                           placeholder="Secure Key (optional)"
+                           value="@Studio.SessionSecureKey"
+                           @onchange="e => Studio.SetSessionSecureKey(e.Value?.ToString())"
+                           title="AES-256-GCM Secure Key (leave blank to use go-flowAPI server FLOW_SECURE_KEY)" />
+                }
+            </div>
+            <div class="section-badge">
+                <span>Total Nodes: <strong>@Studio.CountAllNodes()</strong></span>
+            </div>
+        </div>
+
+        @if (Studio.RequiresDecryptionUnlock)
+        {
+            <div style="padding:12px 16px; background:rgba(245,158,11,0.14); border-bottom:1px solid #f59e0b; display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;">
+                <div style="display:flex; align-items:center; gap:8px; color:#fcd34d; font-size:0.82rem;">
+                    <span>🔒 <strong>Encrypted Config Locked (<code>FLOWENC:v1:</code>)</strong> — Enter the AES-256-GCM Secure Key / Passphrase to decrypt and load into the visual designer:</span>
+                </div>
+                <div style="display:flex; align-items:center; gap:8px;">
+                    <input type="password" class="form-control" style="width:240px;"
+                           placeholder="Enter Secure Key / Passphrase..."
+                           @bind="_unlockPassphrase" @bind:event="oninput" />
+                    <button type="button" class="btn btn-sm btn-primary"
+                            disabled="@string.IsNullOrWhiteSpace(_unlockPassphrase)"
+                            @onclick="() => Studio.TryUnlockCurrentArtifactAsync(_unlockPassphrase)">
+                        🔓 Unlock &amp; Decrypt
+                    </button>
+                </div>
+            </div>
+        }
+
+        <!-- Visual Sections Allowed in CONFIG.xml (Variables, Databases, Preflight) -->
+        <div class="canvas-scroll">
+            <!-- Section 1: Variables -->
+            <div class="section-container">
+                <div class="section-header">
+                    <div class="section-title">
+                        <span style="color:#a855f7;">●</span> 1. Global Variables <code>&lt;variables&gt;</code>
+                    </div>
+                    <div style="display:flex; align-items:center; gap:6px;">
+                        <span class="section-badge">@Studio.CurrentDraft.VariableNodes.Count vars</span>
+                        <button type="button" class="btn btn-sm" disabled="@(!CanAddNode)" @onclick='() => Studio.OpenAddNodeModal("variable", null, "variables")'>
+                            + Add &lt;variable&gt;
+                        </button>
+                    </div>
+                </div>
+                <div class="node-list">
+                    @if (Studio.CurrentDraft.VariableNodes.Count == 0)
+                    {
+                        <div class="empty-placeholder">No global variables defined in this Config. Click "+ Add &lt;variable&gt;" to define environment variables.</div>
+                    }
+                    else
+                    {
+                        @foreach (var node in Studio.CurrentDraft.VariableNodes.OrderBy(n => n.SequenceOrder))
+                        {
+                            <NodeCard Node="node" />
+                        }
+                    }
+                </div>
+            </div>
+
+            <!-- Section 2: Databases -->
+            <div class="section-container">
+                <div class="section-header">
+                    <div class="section-title">
+                        <span style="color:#eab308;">●</span> 2. Database Connections <code>&lt;databases&gt;</code>
+                    </div>
+                    <div style="display:flex; align-items:center; gap:6px;">
+                        <span class="section-badge">@Studio.CurrentDraft.DatabaseNodes.Count connections</span>
+                        <button type="button" class="btn btn-sm" disabled="@(!CanAddNode)" @onclick='() => Studio.OpenAddNodeModal("database", null, "databases")'>
+                            + Add &lt;database&gt;
+                        </button>
+                    </div>
+                </div>
+                <div class="node-list">
+                    @if (Studio.CurrentDraft.DatabaseNodes.Count == 0)
+                    {
+                        <div class="empty-placeholder">No database connections defined in this Config. Click "+ Add &lt;database&gt;" to configure connection pools.</div>
+                    }
+                    else
+                    {
+                        @foreach (var node in Studio.CurrentDraft.DatabaseNodes.OrderBy(n => n.SequenceOrder))
+                        {
+                            <NodeCard Node="node" />
+                        }
+                    }
+                </div>
+            </div>
+
+            <!-- Section 3: Preflight Health Checks -->
+            <div class="section-container">
+                <div class="section-header">
+                    <div class="section-title">
+                        <span style="color:#10b981;">●</span> 3. Preflight Checks &amp; Setup <code>&lt;preflight&gt;</code>
+                    </div>
+                    <div style="display:flex; align-items:center; gap:6px;">
+                        <span class="section-badge">@Studio.CurrentDraft.PreflightNodes.Count checks</span>
+                        <button type="button" class="btn btn-sm" disabled="@(!CanAddNode)" @onclick='() => Studio.OpenAddNodeModal("assert", null, "preflight")'>
+                            + Add &lt;assert&gt;
+                        </button>
+                        <button type="button" class="btn btn-sm" disabled="@(!CanAddNode)" @onclick='() => Studio.OpenAddNodeModal("sql", null, "preflight")'>
+                            + Add &lt;sql&gt;
+                        </button>
+                        <button type="button" class="btn btn-sm" disabled="@(!CanAddNode)" @onclick='() => Studio.OpenAddNodeModal("script", null, "preflight")'>
+                            + Add &lt;script&gt;
+                        </button>
+                        <button type="button" class="btn btn-sm" disabled="@(!CanAddNode)" @onclick='() => Studio.OpenAddNodeModal("template", null, "preflight")'>
+                            + Add &lt;template&gt;
+                        </button>
+                    </div>
+                </div>
+                <div class="node-list">
+                    @if (Studio.CurrentDraft.PreflightNodes.Count == 0)
+                    {
+                        <div class="empty-placeholder">No preflight checks defined. Add &lt;assert&gt;, &lt;sql&gt;, &lt;script&gt;, or &lt;template&gt; checks from the header or left palette.</div>
+                    }
+                    else
+                    {
+                        @foreach (var node in Studio.CurrentDraft.PreflightNodes.OrderBy(n => n.SequenceOrder))
+                        {
+                            <NodeCard Node="node" />
+                        }
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- RIGHT PANE: Live CONFIG XML Preview & Two-Way Importer -->
+    <div class="panel panel-right">
+        <div class="panel-header">
+            <span>📄 CONFIG XML (@Studio.CurrentDraft.Name)</span>
+            <div style="display:flex; gap:5px;">
+                <button type="button" class="btn btn-sm btn-primary"
+                        disabled="@(!CanModifyCanvas)"
+                        @onclick="ApplyEditorXmlToCanvasAsync"
+                        title="Parse edited CONFIG XML back into the visual designer">
+                    ⇄ Apply XML to Canvas
+                </button>
+                <button type="button" class="btn btn-sm"
+                        disabled="@(!CanModifyCanvas)"
+                        @onclick='() => Studio.OpenUploadModal("config")'
+                        title="Select local CONFIG XML file and upload to database">
+                    📂 Upload
+                </button>
+                <button type="button" class="btn btn-sm" @onclick="CopyXmlAsync" title="Copy CONFIG XML to Clipboard">
+                    📋 Copy
+                </button>
+                <button type="button" class="btn btn-sm" @onclick="DownloadXmlAsync" title="Download CONFIG XML file">
+                    ⬇ .xml
+                </button>
+            </div>
+        </div>
+        <div style="flex:1; display:flex; flex-direction:column; overflow:hidden;">
+            <textarea class="xml-editor"
+                      value="@Studio.GeneratedXml"
+                      @oninput="e => Studio.GeneratedXml = e.Value?.ToString() ?? string.Empty"
+                      spellcheck="false"></textarea>
+        </div>
+    </div>
+</div>
+
+@code {
+    private string _paletteFilter = string.Empty;
+    private string _unlockPassphrase = string.Empty;
+    private string? _lastSelectedConfigId;
+
+    private string EffectiveConfigId =>
+        string.Equals(Studio.CurrentDraft.ArtifactType, "config", StringComparison.OrdinalIgnoreCase) && Studio.CurrentDraft.ApiArtifactId.HasValue
+            ? Studio.CurrentDraft.ApiArtifactId.Value.ToString()
+            : (_lastSelectedConfigId ?? (Studio.Configs.Count > 0 ? Studio.Configs[0].Id.ToString() : ""));
+
+    private bool CanAddNode => Auth.CurrentPermissions.CanCreate || Auth.CurrentPermissions.CanUpdate;
+    private bool CanModifyCanvas => Auth.CurrentPermissions.CanUpdate || Auth.CurrentPermissions.CanCreate;
+    private bool CanSaveConfig =>
+        (Auth.CurrentPermissions.CanCreate || Auth.CurrentPermissions.CanUpdate) &&
+        !string.IsNullOrWhiteSpace(Studio.CurrentDraft.Name);
+
+    protected override async Task OnInitializedAsync()
+    {
+        Studio.OnChange += HandleStudioStateChanged;
+        if (!string.Equals(Studio.CurrentDraft.ArtifactType, "config", StringComparison.OrdinalIgnoreCase))
+        {
+            if (Studio.Configs.Count > 0)
+            {
+                await Studio.LoadArtifactRecordAsync(Studio.Configs[0], "config");
+            }
+            else
+            {
+                Studio.SeedDefaultConfigDraft();
+            }
+        }
+    }
+
+    private void HandleStudioStateChanged()
+    {
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    public void Dispose()
+    {
+        Studio.OnChange -= HandleStudioStateChanged;
+    }
+
+    private bool MatchesPaletteFilter(ComponentMeta c)
+    {
+        if (string.IsNullOrWhiteSpace(_paletteFilter)) return true;
+        return c.Tag.Contains(_paletteFilter, StringComparison.OrdinalIgnoreCase)
+            || c.Name.Contains(_paletteFilter, StringComparison.OrdinalIgnoreCase)
+            || c.Description.Contains(_paletteFilter, StringComparison.OrdinalIgnoreCase)
+            || c.Category.Contains(_paletteFilter, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private void OnNameChanged(ChangeEventArgs e)
+    {
+        Studio.CurrentDraft.Name = e.Value?.ToString() ?? "CONFIG_DEV_DEFAULT";
+        Studio.CurrentDraft.IsDirty = true;
+        Studio.RegenerateXmlFromDraft();
+    }
+
+    private void OnDescriptionChanged(ChangeEventArgs e)
+    {
+        Studio.CurrentDraft.Description = e.Value?.ToString() ?? string.Empty;
+        Studio.CurrentDraft.IsDirty = true;
+        Studio.RegenerateXmlFromDraft();
+    }
+
+    private void OnEncryptedChanged(ChangeEventArgs e)
+    {
+        Studio.CurrentDraft.Encrypted = e.Value is bool b && b;
+        Studio.CurrentDraft.IsDirty = true;
+    }
+
+    private async Task OnSelectConfigFromDbAsync(ChangeEventArgs e)
+    {
+        var raw = e.Value?.ToString();
+        _lastSelectedConfigId = raw;
+        if (string.IsNullOrWhiteSpace(raw)) return;
+        if (int.TryParse(raw, out var id))
+        {
+            await Studio.LoadDatabaseArtifactByIdAsync("config", id);
+        }
+    }
+
+    private async Task EditSelectedConfigFromDbAsync()
+    {
+        if (int.TryParse(EffectiveConfigId, out var id))
+        {
+            await Studio.LoadDatabaseArtifactByIdAsync("config", id);
+        }
+    }
+
+    private async Task DeleteSelectedConfigAsync()
+    {
+        if (!Studio.CurrentDraft.ApiArtifactId.HasValue) return;
+        var id = Studio.CurrentDraft.ApiArtifactId.Value;
+        var found = Studio.Configs.FirstOrDefault(a => a.Id == id) ?? new ArtifactRecord
+        {
+            Id = id,
+            Type = "config",
+            Name = Studio.CurrentDraft.Name
+        };
+        await Studio.DeleteArtifactAsync("config", found);
+    }
+
+    private async Task ValidateCurrentConfigAsync()
+    {
+        try
+        {
+            var (valid, msg) = await ApiClient.ValidatePipelineXmlAsync(Studio.GeneratedXml);
+            if (valid)
+            {
+                Studio.ShowBanner($"Config XML Validation Passed: {msg}", "success");
+                await Studio.LogEventAsync("DESIGNER", "VALIDATE_XML", "config", Studio.CurrentDraft.Name, "SUCCESS", 0, null);
+            }
+            else
+            {
+                Studio.ShowBanner($"Config XML Validation Failed: {msg}", "error");
+                await Studio.LogEventAsync("DESIGNER", "VALIDATE_XML", "config", Studio.CurrentDraft.Name, "INVALID", 0, msg);
+            }
+        }
+        catch (Exception ex)
+        {
+            Studio.ShowBanner($"Validation request error: {ex.Message}", "error");
+        }
+    }
+
+    private async Task ApplyEditorXmlToCanvasAsync()
+    {
+        await Studio.ApplyXmlToCanvasAsync(Studio.GeneratedXml);
+    }
+
+    private async Task CopyXmlAsync()
+    {
+        await JS.InvokeVoidAsync("flowStudio.copyToClipboard", Studio.GeneratedXml);
+        Studio.ShowBanner("Copied CONFIG XML to clipboard.", "info");
+        await Studio.LogEventAsync("DESIGNER", "COPY_XML", "config", Studio.CurrentDraft.Name, "SUCCESS", 0, null);
+    }
+
+    private async Task DownloadXmlAsync()
+    {
+        var filename = $"{Studio.CurrentDraft.Name}.xml";
+        await JS.InvokeVoidAsync("flowStudio.downloadXmlFile", filename, Studio.GeneratedXml);
+        await Studio.LogEventAsync("DESIGNER", "DOWNLOAD_XML", "config", filename, "SUCCESS", 0, null);
+    }
+}

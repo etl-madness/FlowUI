@@ -1,0 +1,740 @@
+@implements IDisposable
+@inject StudioStateService Studio
+@inject FlowApiClient ApiClient
+@inject FlowCryptoService Crypto
+@inject IAuthenticationService Auth
+@inject XmlImporterService XmlImporter
+@inject XmlGeneratorService XmlGen
+
+<div class="workspace-full">
+    <div style="display:grid; grid-template-columns:340px 1fr; gap:18px; height:calc(100vh - 105px);">
+        <!-- Left List of OPTIONS Artifacts -->
+        <div class="panel" style="border:1px solid var(--border); border-radius:8px;">
+            <div class="panel-header">
+                <span>🎛 API OPTIONS Artifacts (@Studio.OptionsList.Count)</span>
+                <div style="display:flex; gap:4px;">
+                    <button type="button" class="btn btn-sm" @onclick="Studio.RefreshHealthAndArtifactsAsync" title="Refresh from go-flowAPI">
+                        🔄
+                    </button>
+                    <button type="button" class="btn btn-sm"
+                            disabled="@(!CanEdit)"
+                            @onclick='() => Studio.OpenUploadModal("options")'
+                            title="Upload a local options.xml file to go-flowAPI">
+                        📂 Upload
+                    </button>
+                    <button type="button" class="btn btn-sm btn-primary"
+                            disabled="@(!CanEdit)"
+                            @onclick="NewOptionsDraft">
+                        + New
+                    </button>
+                </div>
+            </div>
+            <div class="panel-body">
+                @if (Studio.OptionsList.Count == 0)
+                {
+                    <div class="empty-placeholder">No options.xml artifacts found in go-flowAPI. Click "+ New" or "📂 Upload" to create one.</div>
+                }
+                else
+                {
+                    @foreach (var opt in Studio.OptionsList)
+                    {
+                        var isSelected = _selectedId == opt.Id;
+                        <div class="palette-item" style="cursor:pointer; border-color:@(isSelected ? "var(--accent)" : "var(--border)");"
+                             @onclick="() => SelectOptionsAsync(opt)">
+                            <div class="palette-item-header">
+                                <span style="font-weight:700; color:#93c5fd;">@opt.Name</span>
+                                <div style="display:flex; gap:4px; align-items:center;">
+                                    @if (opt.Encrypted)
+                                    {
+                                        <span class="badge badge-warn" style="font-size:0.65rem;">🔒</span>
+                                    }
+                                    @if (opt.Signed)
+                                    {
+                                        <span class="badge badge-success" style="font-size:0.65rem;">✍️</span>
+                                    }
+                                    <span class="section-badge">#@opt.Id</span>
+                                </div>
+                            </div>
+                            <div class="palette-desc">@(string.IsNullOrEmpty(opt.Description) ? "No description" : opt.Description)</div>
+                            <div style="font-size:0.7rem; color:var(--text-muted); margin-top:4px; display:flex; justify-content:space-between; align-items:center;">
+                                <span>📄 /api/v1/artifacts/options · @opt.UpdatedAt.ToString("yyyy-MM-dd HH:mm")</span>
+                                <div style="display:flex; gap:4px;">
+                                    <button type="button" class="btn btn-sm" style="padding:1px 6px; font-size:0.68rem;"
+                                            @onclick:stopPropagation="true"
+                                            @onclick="() => OpenInVisualDesignerAsync(opt)">
+                                        🎨 Designer
+                                    </button>
+                                    <button type="button" class="btn btn-sm btn-danger" style="padding:1px 6px; font-size:0.68rem;"
+                                            disabled="@(!Auth.CurrentPermissions.CanDelete)"
+                                            @onclick:stopPropagation="true"
+                                            @onclick="() => DeleteSpecificOptionsAsync(opt)"
+                                            title="Delete OPTIONS profile from API">
+                                        🗑
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    }
+                }
+            </div>
+        </div>
+
+        <!-- Right Editor (Visual CRUD + Raw XML) -->
+        <div class="panel" style="border:1px solid var(--border); border-radius:8px; display:flex; flex-direction:column; overflow:hidden;">
+            <div class="panel-header" style="flex-wrap:wrap; gap:8px;">
+                <div style="display:flex; align-items:center; gap:10px;">
+                    <span>options.xml CRUD Editor (@(_selectedId.HasValue ? $"ID #{_selectedId}" : "New Draft"))</span>
+                    <select class="form-control" style="width:220px;" value="@(_selectedId?.ToString() ?? "")"
+                            @onchange="OnDropdownSelectAsync">
+                        <option value="">-- Select API Options --</option>
+                        @foreach (var o in Studio.OptionsList)
+                        {
+                            <option value="@o.Id">@o.Name (#@o.Id)</option>
+                        }
+                    </select>
+                </div>
+                <div style="display:flex; gap:6px; flex-wrap:wrap;">
+                    <button type="button" class="btn btn-sm"
+                            disabled="@(!CanEdit)"
+                            @onclick="NewOptionsDraft"
+                            title="Create a new OPTIONS draft">
+                        + New
+                    </button>
+                    <button type="button" class="btn btn-sm"
+                            disabled="@(!CanEdit)"
+                            @onclick="CloneOptionsAsNewAsync"
+                            title="Duplicate current OPTIONS as a new copy">
+                        📑 Save As Copy
+                    </button>
+                    <button type="button" class="btn btn-sm"
+                            @onclick='() => Studio.OpenUploadModal("options")'
+                            title="Select a local options.xml file and upload via go-flowAPI">
+                        📂 Upload File...
+                    </button>
+                    <button type="button" class="btn btn-sm" @onclick="OpenCurrentInVisualDesignerAsync"
+                            title="Open this Options profile in the Visual Pipeline Designer">
+                        🎨 Open in Designer
+                    </button>
+                    <button type="button" class="btn btn-sm" @onclick="OpenSignVerifyForCurrentOptionsAsync"
+                            title="Sign or Verify this Options profile with OpenSSL, PKCS#7/CMS, or GPG">
+                        ✍️ @(_signed ? $"Signed ({_signatureFormat.ToUpperInvariant()})" : "Sign / Verify")
+                    </button>
+                    @if (_selectedId.HasValue || !string.IsNullOrWhiteSpace(_name))
+                    {
+                        <button type="button" class="btn btn-sm btn-danger"
+                                disabled="@(!Auth.CurrentPermissions.CanDelete || !_selectedId.HasValue)"
+                                @onclick="DeleteOptionsAsync">
+                            🗑 Delete
+                        </button>
+                    }
+                    <button type="button" class="btn btn-sm btn-primary"
+                            disabled="@(!CanSave)"
+                            @onclick="SaveOptionsAsync">
+                        💾 Save OPTIONS
+                    </button>
+                </div>
+            </div>
+
+            <div style="padding:12px 16px; border-bottom:1px solid var(--border); display:grid; grid-template-columns:240px 1fr auto; gap:12px; align-items:end;">
+                <div>
+                    <label class="form-label">
+                        Options Profile Name
+                        @if (_signed)
+                        {
+                            <span class="badge badge-success" style="margin-left:6px; font-size:0.68rem;">✍️ SIGNED (@_signatureFormat.ToUpperInvariant())</span>
+                        }
+                    </label>
+                    <input class="form-control" @bind="_name" @bind:event="oninput" placeholder="OPTIONS_DEFAULT" />
+                </div>
+                <div>
+                    <label class="form-label">Description</label>
+                    <input class="form-control" @bind="_description" @bind:event="oninput" placeholder="Execution flags and runtime parameter overrides" />
+                </div>
+                <div style="display:flex; align-items:center; gap:8px; padding-bottom:4px;">
+                    <label style="display:flex; align-items:center; gap:6px; cursor:pointer; font-size:0.78rem; white-space:nowrap;"
+                           title="Encrypt options.xml at rest using AES-256-GCM (FLOWENC:v1:)">
+                        <input type="checkbox" @bind="_encrypted" />
+                        <span>🔒 Encrypt</span>
+                    </label>
+                    @if (_encrypted)
+                    {
+                        <input type="password" class="form-control" style="width:155px; padding:4px 8px; font-size:0.75rem;"
+                               placeholder="Secure Key (optional)"
+                               value="@Studio.SessionSecureKey"
+                               @onchange="e => Studio.SetSessionSecureKey(e.Value?.ToString())"
+                               title="AES-256-GCM Secure Key (leave blank to use go-flowAPI server FLOW_SECURE_KEY)" />
+                    }
+                </div>
+            </div>
+
+            @if (_requiresUnlock)
+            {
+                <div style="padding:10px 16px; background:rgba(245,158,11,0.14); border-bottom:1px solid #f59e0b; display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;">
+                    <div style="color:#fcd34d; font-size:0.8rem;">
+                        🔒 <strong>Encrypted <code>options.xml</code> Locked (<code>FLOWENC:v1:</code>)</strong> — Enter the AES-256-GCM Secure Key to decrypt and edit:
+                    </div>
+                    <div style="display:flex; align-items:center; gap:8px;">
+                        <input type="password" class="form-control" style="width:220px;"
+                               placeholder="Enter Secure Key / Passphrase..."
+                               @bind="_unlockPassphrase" @bind:event="oninput" />
+                        <button type="button" class="btn btn-sm btn-primary"
+                                disabled="@string.IsNullOrWhiteSpace(_unlockPassphrase)"
+                                @onclick="TryUnlockOptionsAsync">
+                            🔓 Unlock &amp; Decrypt
+                        </button>
+                    </div>
+                </div>
+            }
+
+            <!-- Split View: Visual CLI Option Element CRUD + Live XML Editor -->
+            <div style="flex:1; display:grid; grid-template-columns:1fr 1fr; gap:0; overflow:hidden;">
+                <!-- Left: Visual options.xsd Element Builder -->
+                <div style="border-right:1px solid var(--border); display:flex; flex-direction:column; overflow:hidden;">
+                    <div style="padding:10px 14px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:6px;">
+                        <span style="font-weight:700; font-size:0.8rem;">
+                            🎛 <code>options.xsd</code> Elements (<code>@_entries.Count</code>)
+                        </span>
+                        <div style="display:flex; gap:4px; flex-wrap:wrap;">
+                            <button type="button" class="btn btn-sm btn-primary" disabled="@(!CanEdit)"
+                                    @onclick='() => AddFlagEntry("vars", "ENV=DEV")'
+                                    title="Comma-separated key=value runtime variable overrides (-vars)">
+                                + &lt;vars&gt;
+                            </button>
+                            <button type="button" class="btn btn-sm" disabled="@(!CanEdit)"
+                                    @onclick='() => AddFlagEntry("node-output", "true")'
+                                    title="Record output of each node into pipeline_events.node_output (-node-output)">
+                                + &lt;node-output&gt;
+                            </button>
+                            <button type="button" class="btn btn-sm" disabled="@(!CanEdit)"
+                                    @onclick='() => AddFlagEntry("debug", "true")'
+                                    title="Enable detailed console execution logging (-debug)">
+                                + &lt;debug&gt;
+                            </button>
+                            <button type="button" class="btn btn-sm" disabled="@(!CanEdit)"
+                                    @onclick='() => AddFlagEntry("format", "json")'
+                                    title="Output formatting (-format)">
+                                + &lt;format&gt;
+                            </button>
+                            <button type="button" class="btn btn-sm" disabled="@(!CanEdit)"
+                                    @onclick='() => AddFlagEntry("preflight", "true")'
+                                    title="Execute preflight validation nodes only (-preflight)">
+                                + &lt;preflight&gt;
+                            </button>
+                            <button type="button" class="btn btn-sm" disabled="@(!CanEdit)"
+                                    @onclick='() => AddFlagEntry("config", "")'
+                                    title="Optional path to a CONFIG.xml file (-config)">
+                                + &lt;config&gt;
+                            </button>
+                        </div>
+                    </div>
+
+                    <div style="flex:1; overflow-y:auto; padding:12px; display:flex; flex-direction:column; gap:8px;">
+                        @if (_entries.Count == 0)
+                        {
+                            <div class="empty-placeholder">
+                                No CLI options defined in this profile. Use the buttons above to add <code>options.xsd</code> elements (e.g. <code>&lt;vars&gt;</code>, <code>&lt;node-output&gt;</code>, <code>&lt;format&gt;</code>, <code>&lt;debug&gt;</code>).
+                            </div>
+                        }
+                        else
+                        {
+                            @for (var i = 0; i < _entries.Count; i++)
+                            {
+                                var entry = _entries[i];
+                                var normTag = XmlGeneratorService.NormalizeOptionTagName(entry.Flag);
+                                var meta = XmlGeneratorService.OptionsXsdCatalog.FirstOrDefault(x =>
+                                    string.Equals(x.Tag, normTag, StringComparison.OrdinalIgnoreCase));
+                                var isBool = XmlGeneratorService.BooleanOptionElements.Contains(normTag);
+                                var isFormat = string.Equals(normTag, "format", StringComparison.OrdinalIgnoreCase);
+
+                                <div class="node-card" style="display:grid; grid-template-columns:210px 1fr auto; gap:8px; align-items:center; padding:8px 12px;">
+                                    <div>
+                                        <label class="form-label" style="margin-bottom:2px; font-size:0.7rem;">Option Element (<code>options.xsd</code>)</label>
+                                        <select class="form-control" value="@normTag"
+                                                @onchange="e => OnEntryFlagChanged(entry, e.Value?.ToString())">
+                                            @foreach (var optMeta in XmlGeneratorService.OptionsXsdCatalog)
+                                            {
+                                                <option value="@optMeta.Tag">&lt;@optMeta.Tag&gt; (@optMeta.Type)</option>
+                                            }
+                                            @if (!XmlGeneratorService.OptionsXsdCatalog.Any(x => string.Equals(x.Tag, normTag, StringComparison.OrdinalIgnoreCase)) && !string.IsNullOrEmpty(normTag))
+                                            {
+                                                <option value="@normTag">&lt;@normTag&gt;</option>
+                                            }
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label class="form-label" style="margin-bottom:2px; font-size:0.7rem;" title="@(meta.Description ?? "")">
+                                            Value @(meta.Tag is not null ? $"— {meta.Description}" : "")
+                                        </label>
+                                        @if (isBool)
+                                        {
+                                            <select class="form-control" value="@(string.Equals(entry.Value, "false", StringComparison.OrdinalIgnoreCase) ? "false" : "true")"
+                                                    @onchange="e => OnEntryValueChanged(entry, e.Value?.ToString())">
+                                                <option value="true">true</option>
+                                                <option value="false">false</option>
+                                            </select>
+                                        }
+                                        else if (isFormat)
+                                        {
+                                            <select class="form-control" value="@(string.IsNullOrWhiteSpace(entry.Value) ? "csv" : entry.Value.Trim().ToLowerInvariant())"
+                                                    @onchange="e => OnEntryValueChanged(entry, e.Value?.ToString())">
+                                                <option value="csv">csv (Comma-separated values)</option>
+                                                <option value="text">text (Plain text output)</option>
+                                                <option value="json">json (Compact JSON output)</option>
+                                                <option value="jsonpretty">jsonpretty (Indented JSON output)</option>
+                                                <option value="markdown">markdown (Markdown table output)</option>
+                                                <option value="summary">summary (Condensed summary output)</option>
+                                                <option value="stream">stream (Detailed stream state output)</option>
+                                            </select>
+                                        }
+                                        else
+                                        {
+                                            <input class="form-control" value="@entry.Value"
+                                                   placeholder="@(meta.DefaultValue is { Length: > 0 } def ? $"e.g. {def}" : "Enter value...")"
+                                                   @oninput="e => OnEntryValueChanged(entry, e.Value?.ToString())" />
+                                        }
+                                    </div>
+                                    <div style="padding-top:14px;">
+                                        <button type="button" class="btn btn-sm btn-danger"
+                                                disabled="@(!CanEdit)"
+                                                @onclick="() => RemoveFlagEntry(entry.Id)"
+                                                title="Delete option element">
+                                            🗑
+                                        </button>
+                                    </div>
+                                </div>
+                            }
+                        }
+                    </div>
+                </div>
+
+                <!-- Right: Raw options.xml Editor -->
+                <div style="display:flex; flex-direction:column; overflow:hidden;">
+                    <div style="padding:10px 14px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center;">
+                        <span style="font-weight:700; font-size:0.8rem;">📄 Raw <code>options.xml</code></span>
+                        <div style="display:flex; gap:6px;">
+                            <button type="button" class="btn btn-sm" @onclick="ParseXmlIntoEntries"
+                                    title="Parse raw XML into visual flag list">
+                                ⇄ Sync XML → Flags
+                            </button>
+                            <button type="button" class="btn btn-sm" @onclick="LoadDefaultTemplate">
+                                📋 Default Template
+                            </button>
+                        </div>
+                    </div>
+                    <textarea class="xml-editor" style="flex:1;"
+                              value="@_xmlContent"
+                              @oninput="OnRawXmlEdited"
+                              spellcheck="false"></textarea>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    private int? _selectedId;
+    private string _name = "OPTIONS_DEFAULT";
+    private string _description = "Default execution options for Flow pipelines";
+    private string _xmlContent = string.Empty;
+    private bool _encrypted;
+    private bool _signed;
+    private string _signatureFormat = "openssl";
+    private string _signedEnvelopeContent = string.Empty;
+    private bool _requiresUnlock;
+    private string _lockedRawEnvelope = string.Empty;
+    private string _unlockPassphrase = string.Empty;
+    private List<FlowOptionEntry> _entries = new();
+    private long _localEntryCounter = 1;
+
+    private bool CanEdit => Auth.CurrentPermissions.CanCreate || Auth.CurrentPermissions.CanUpdate;
+    private bool CanSave => CanEdit && !string.IsNullOrWhiteSpace(_name);
+
+    protected override void OnInitialized()
+    {
+        Studio.OnChange += HandleStudioChanged;
+        EnsureInitialSelection();
+    }
+
+    private void HandleStudioChanged()
+    {
+        if (Studio.CurrentDraft.ArtifactType == "options")
+        {
+            if (Studio.CurrentDraft.Signed && (_selectedId == Studio.CurrentDraft.ApiArtifactId || string.Equals(_name, Studio.CurrentDraft.Name, StringComparison.OrdinalIgnoreCase)))
+            {
+                _signed = Studio.CurrentDraft.Signed;
+                _signatureFormat = Studio.CurrentDraft.SignatureFormat;
+                _signedEnvelopeContent = Studio.CurrentDraft.SignedEnvelopeContent ?? string.Empty;
+            }
+        }
+
+        if (Studio.CurrentDraft.ArtifactType == "options" && Studio.CurrentDraft.ApiArtifactId.HasValue)
+        {
+            var match = Studio.OptionsList.FirstOrDefault(o => o.Id == Studio.CurrentDraft.ApiArtifactId.Value);
+            if (match is not null && (_selectedId != match.Id || _xmlContent != match.Content))
+            {
+                ApplyLoadedRecordToOptionsState(match);
+            }
+        }
+        else if (_selectedId is null && Studio.OptionsList.Count > 0)
+        {
+            EnsureInitialSelection();
+        }
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    private void EnsureInitialSelection()
+    {
+        if (Studio.OptionsList.Count > 0)
+        {
+            _ = SelectOptionsAsync(Studio.OptionsList[0]);
+        }
+        else if (string.IsNullOrWhiteSpace(_xmlContent))
+        {
+            LoadDefaultTemplate();
+        }
+    }
+
+    private void ApplyLoadedRecordToOptionsState(ArtifactRecord rec)
+    {
+        _selectedId = rec.Id;
+        _name = rec.Name;
+        _description = rec.Description;
+        var raw = !string.IsNullOrWhiteSpace(rec.Content) ? rec.Content : Studio.GeneratedXml;
+        var (plainXml, isEncrypted, needsKey, isSigned, sigFormat, signedEnvelope) = Studio.UnwrapEnvelopeForDesigner(raw);
+        _encrypted = rec.Encrypted || isEncrypted;
+        _signed = rec.Signed || isSigned;
+        _signatureFormat = !string.IsNullOrWhiteSpace(sigFormat) ? sigFormat : rec.SignatureFormat;
+        _signedEnvelopeContent = signedEnvelope;
+        _requiresUnlock = needsKey;
+        _lockedRawEnvelope = needsKey ? raw : string.Empty;
+        _xmlContent = plainXml;
+        if (!needsKey)
+        {
+            ParseXmlIntoEntries();
+        }
+        else
+        {
+            _entries.Clear();
+        }
+    }
+
+    private async Task TryUnlockOptionsAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_unlockPassphrase)) return;
+        Studio.SetSessionSecureKey(_unlockPassphrase);
+        if (_selectedId.HasValue && _selectedId.Value > 0)
+        {
+            var loaded = await ApiClient.GetArtifactByIdAsync("options", _selectedId.Value, decrypt: true, secureKey: _unlockPassphrase);
+            if (loaded is not null && !Crypto.IsEncryptedContent(loaded.Content))
+            {
+                loaded.Encrypted = true;
+                ApplyLoadedRecordToOptionsState(loaded);
+                Studio.ShowBanner($"Unlocked and decrypted OPTIONS '{_name}'.", "success");
+                return;
+            }
+        }
+        if (!string.IsNullOrWhiteSpace(_lockedRawEnvelope))
+        {
+            try
+            {
+                var dec = Crypto.DecryptContent(_lockedRawEnvelope, _unlockPassphrase);
+                var rec = new ArtifactRecord
+                {
+                    Id = _selectedId ?? 0,
+                    Type = "options",
+                    Name = _name,
+                    Description = _description,
+                    Content = dec,
+                    Encrypted = true
+                };
+                ApplyLoadedRecordToOptionsState(rec);
+                Studio.ShowBanner($"Unlocked and decrypted OPTIONS '{_name}'.", "success");
+            }
+            catch (Exception ex)
+            {
+                Studio.ShowBanner($"Decryption failed: {ex.Message}", "error");
+            }
+        }
+    }
+
+    public void Dispose()
+    {
+        Studio.OnChange -= HandleStudioChanged;
+    }
+
+    private void NewOptionsDraft()
+    {
+        _selectedId = null;
+        _name = $"OPTIONS_{DateTime.Now:HHmmss}";
+        _description = "Runtime options.xml artifact";
+        _encrypted = false;
+        _signed = false;
+        _signedEnvelopeContent = string.Empty;
+        _requiresUnlock = false;
+        LoadDefaultTemplate();
+    }
+
+    private void LoadDefaultTemplate()
+    {
+        _xmlContent = """
+            <?xml version="1.0" encoding="utf-8"?>
+            <flow_cli_options>
+              <options>
+                <vars>ENV=DEV</vars>
+                <node-output>true</node-output>
+                <debug>true</debug>
+              </options>
+            </flow_cli_options>
+            """;
+        ParseXmlIntoEntries();
+    }
+
+    private void ParseXmlIntoEntries()
+    {
+        try
+        {
+            var draft = XmlImporter.ImportFromXml(
+                _xmlContent,
+                () => Interlocked.Increment(ref _localEntryCounter),
+                _name,
+                _description,
+                "options");
+            _entries = draft.OptionEntries.ToList();
+
+            // Automatically upgrade legacy <option flag="..."> XML to options.xsd compliant format
+            if (_xmlContent.Contains("<option ", StringComparison.OrdinalIgnoreCase))
+            {
+                SyncEntriesToXml();
+            }
+        }
+        catch
+        {
+            // Keep existing entries if XML is mid-edit
+        }
+    }
+
+    private void SyncEntriesToXml()
+    {
+        var draft = new PipelineDraft
+        {
+            ArtifactType = "options",
+            Name = _name,
+            Description = _description,
+            OptionEntries = _entries.ToList()
+        };
+        _xmlContent = XmlGen.GeneratePipelineXml(draft);
+    }
+
+    private void AddFlagEntry(string flag, string value)
+    {
+        if (!CanEdit) return;
+        var normTag = XmlGeneratorService.NormalizeOptionTagName(flag);
+        _entries.Add(new FlowOptionEntry
+        {
+            Id = Interlocked.Increment(ref _localEntryCounter),
+            Flag = normTag,
+            Value = value
+        });
+        SyncEntriesToXml();
+    }
+
+    private void RemoveFlagEntry(long id)
+    {
+        if (!CanEdit) return;
+        _entries.RemoveAll(e => e.Id == id);
+        SyncEntriesToXml();
+    }
+
+    private void OnEntryFlagChanged(FlowOptionEntry entry, string? newFlag)
+    {
+        var normTag = XmlGeneratorService.NormalizeOptionTagName(newFlag);
+        entry.Flag = normTag;
+        var meta = XmlGeneratorService.OptionsXsdCatalog.FirstOrDefault(x =>
+            string.Equals(x.Tag, normTag, StringComparison.OrdinalIgnoreCase));
+        if (XmlGeneratorService.BooleanOptionElements.Contains(normTag) &&
+            !string.Equals(entry.Value, "true", StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(entry.Value, "false", StringComparison.OrdinalIgnoreCase))
+        {
+            entry.Value = meta.DefaultValue is { Length: > 0 } d ? d : "true";
+        }
+        else if (string.Equals(normTag, "format", StringComparison.OrdinalIgnoreCase))
+        {
+            entry.Value = "json";
+        }
+        else if (meta.Tag is not null && string.IsNullOrWhiteSpace(entry.Value))
+        {
+            entry.Value = meta.DefaultValue;
+        }
+        SyncEntriesToXml();
+    }
+
+    private void OnEntryValueChanged(FlowOptionEntry entry, string? newValue)
+    {
+        entry.Value = newValue ?? string.Empty;
+        SyncEntriesToXml();
+    }
+
+    private void OnRawXmlEdited(ChangeEventArgs e)
+    {
+        _xmlContent = e.Value?.ToString() ?? string.Empty;
+        ParseXmlIntoEntries();
+    }
+
+    private async Task OnDropdownSelectAsync(ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out var id))
+        {
+            var opt = Studio.OptionsList.FirstOrDefault(o => o.Id == id);
+            if (opt is not null)
+            {
+                await SelectOptionsAsync(opt);
+            }
+        }
+    }
+
+    private async Task SelectOptionsAsync(ArtifactRecord opt)
+    {
+        var wasEncrypted = opt.Encrypted || (!string.IsNullOrWhiteSpace(opt.Content) && Crypto.IsEncryptedContent(opt.Content));
+        var wasSigned = opt.Signed;
+        var full = (string.IsNullOrWhiteSpace(opt.Content) || Crypto.IsEncryptedContent(opt.Content)) && opt.Id > 0
+            ? await ApiClient.GetArtifactByIdAsync("options", opt.Id, decrypt: true, secureKey: Studio.SessionSecureKey)
+              ?? await ApiClient.GetArtifactByNameAsync("options", opt.Name, decrypt: true, secureKey: Studio.SessionSecureKey)
+              ?? opt
+            : opt;
+
+        full.Encrypted |= wasEncrypted;
+        full.Signed |= wasSigned;
+        ApplyLoadedRecordToOptionsState(full);
+        await Studio.LogEventAsync("OPTIONS", "LOAD_ARTIFACT", "options", full.Name, "SUCCESS", 0, null);
+    }
+
+    private async Task OpenInVisualDesignerAsync(ArtifactRecord opt)
+    {
+        await Studio.LoadArtifactRecordAsync(opt, "options");
+        await Studio.SetActiveTabAsync("pipeline");
+    }
+
+    private async Task OpenCurrentInVisualDesignerAsync()
+    {
+        var rec = new ArtifactRecord
+        {
+            Id = _selectedId ?? 0,
+            Type = "options",
+            Name = _name,
+            Description = _description,
+            Content = !string.IsNullOrWhiteSpace(_signedEnvelopeContent) ? _signedEnvelopeContent : _xmlContent,
+            Encrypted = _encrypted,
+            Signed = _signed,
+            SignatureFormat = _signatureFormat
+        };
+        await Studio.LoadArtifactRecordAsync(rec, "options");
+        await Studio.SetActiveTabAsync("pipeline");
+    }
+
+    private async Task OpenSignVerifyForCurrentOptionsAsync()
+    {
+        var rec = new ArtifactRecord
+        {
+            Id = _selectedId ?? 0,
+            Type = "options",
+            Name = _name,
+            Description = _description,
+            Content = !string.IsNullOrWhiteSpace(_signedEnvelopeContent) ? _signedEnvelopeContent : _xmlContent,
+            Encrypted = _encrypted,
+            Signed = _signed,
+            SignatureFormat = _signatureFormat
+        };
+        await Studio.LoadArtifactRecordAsync(rec, "options");
+        Studio.OpenSignVerifyModal();
+    }
+
+    private async Task SaveOptionsAsync()
+    {
+        if (!CanSave)
+        {
+            Studio.ShowBanner("Permission denied to save OPTIONS artifact.", "error");
+            return;
+        }
+
+        try
+        {
+            var payloadToPersist = _xmlContent;
+            if (_signed && !string.IsNullOrWhiteSpace(_signedEnvelopeContent) && Crypto.IsSignedEnvelope(_signedEnvelopeContent))
+            {
+                payloadToPersist = _signedEnvelopeContent;
+            }
+
+            var saved = await ApiClient.UpsertArtifactAsync(
+                "options",
+                _name,
+                _description,
+                payloadToPersist,
+                encrypted: _encrypted,
+                secureKey: Studio.SessionSecureKey);
+            await Studio.RefreshHealthAndArtifactsAsync();
+
+            var refreshed = Studio.OptionsList.FirstOrDefault(o =>
+                string.Equals(o.Name, _name, StringComparison.OrdinalIgnoreCase));
+            _selectedId = refreshed?.Id ?? (saved.Id > 0 ? saved.Id : _selectedId);
+
+            Studio.ShowBanner($"Saved OPTIONS '{_name}' (#{_selectedId}) via go-flowAPI{(_encrypted ? " [Encrypted]" : "")}{(_signed ? $" [Signed:{_signatureFormat}]" : "")}.", "success");
+            await Studio.LogEventAsync("OPTIONS", "SAVE_ARTIFACT", "options", _name, "SUCCESS", 0, null, new { id = _selectedId, encrypted = _encrypted, signed = _signed });
+        }
+        catch (Exception ex)
+        {
+            Studio.ShowBanner($"Failed to save OPTIONS via go-flowAPI: {ex.Message}", "error");
+            await Studio.LogEventAsync("OPTIONS", "SAVE_ARTIFACT", "options", _name, "ERROR", 0, ex.Message);
+        }
+    }
+
+    private async Task CloneOptionsAsNewAsync()
+    {
+        if (!CanEdit) return;
+        _selectedId = null;
+        _name = $"{_name}_COPY";
+        await SaveOptionsAsync();
+    }
+
+    private async Task DeleteOptionsAsync()
+    {
+        if (!_selectedId.HasValue || !Auth.CurrentPermissions.CanDelete) return;
+        await DeleteSpecificOptionsAsync(new ArtifactRecord
+        {
+            Id = _selectedId.Value,
+            Type = "options",
+            Name = _name
+        });
+    }
+
+    private async Task DeleteSpecificOptionsAsync(ArtifactRecord opt)
+    {
+        if (!Auth.CurrentPermissions.CanDelete) return;
+        try
+        {
+            var ok = opt.Id > 0 && await ApiClient.DeleteArtifactByIdAsync("options", opt.Id);
+            if (!ok && !string.IsNullOrWhiteSpace(opt.Name))
+            {
+                ok = await ApiClient.DeleteArtifactByNameAsync("options", opt.Name);
+            }
+
+            if (ok)
+            {
+                await Studio.RefreshHealthAndArtifactsAsync();
+                Studio.ShowBanner($"Deleted OPTIONS '{opt.Name}' via go-flowAPI.", "info");
+                await Studio.LogEventAsync("OPTIONS", "DELETE_ARTIFACT", "options", opt.Name, "SUCCESS", 0, null);
+                if (_selectedId == opt.Id)
+                {
+                    NewOptionsDraft();
+                }
+            }
+            else
+            {
+                Studio.ShowBanner($"Failed to delete OPTIONS '{opt.Name}' via go-flowAPI.", "error");
+            }
+        }
+        catch (Exception ex)
+        {
+            Studio.ShowBanner($"Delete error: {ex.Message}", "error");
+        }
+    }
+}

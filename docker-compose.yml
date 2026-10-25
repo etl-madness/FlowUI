@@ -1,0 +1,39 @@
+# =============================================================================
+# Combination 1 (Default): FlowUIv2 Only (Linux Container)
+# Connects strictly to an existing external go-flowAPI (no direct DB connection).
+#
+# Usage:
+#   docker compose up -d --build
+#
+# Other combinations:
+#   - FlowUIv2 + go-flowAPI:
+#       docker compose -f docker-compose.api.yml up -d --build
+#   - Full Stack (FlowUIv2 + go-flowAPI + SQL Server 2022):
+#       docker compose -f docker-compose.full.yml up -d --build
+#   - Windows Container (with Windows Integrated Auth):
+#       docker compose -f docker-compose.windows.yml up -d --build
+# =============================================================================
+
+services:
+  flowuiv2:
+    build:
+      context: .
+      dockerfile: ${FLOW_UI_DOCKERFILE:-Dockerfile}
+    image: flowuiv2:latest
+    container_name: flowuiv2
+    restart: unless-stopped
+    ports:
+      - "${FLOW_UI_PORT:-5185}:5185"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      ASPNETCORE_ENVIRONMENT: "${ASPNETCORE_ENVIRONMENT:-Production}"
+      ASPNETCORE_URLS: "http://+:5185"
+      FLOW_UI_PORT: "5185"
+      FLOW_API_HOST: "${FLOW_API_HOST:-http://host.docker.internal}"
+      FLOW_API_PORT: "${FLOW_API_PORT:-5180}"
+      FLOW_UI_AUTH_MODE: "${FLOW_UI_AUTH_MODE:-ApiBasic}"
+      FLOW_WINDOWS_USER: "${FLOW_WINDOWS_USER:-}"
+      FLOW_WINDOWS_GROUPS: "${FLOW_WINDOWS_GROUPS:-}"
+      HOST_USERDOMAIN: "${USERDOMAIN:-DOMAINNAME}"
+      HOST_USERNAME: "${USERNAME:-USERNAME}"

@@ -1,0 +1,123 @@
+@implements IDisposable
+@inject StudioStateService Studio
+
+@if (Studio.IsEventDetailModalOpen)
+{
+    <div class="modal-overlay" @onclick="Studio.CloseEventDetailModal">
+        <div class="modal-box modal-lg" @onclick:stopPropagation="true">
+            <div class="modal-header">
+                @if (Studio.SelectedPipelineEvent is not null)
+                {
+                    <span>🔍 Pipeline Step Event Detail (#@Studio.SelectedPipelineEvent.Id — @Studio.SelectedPipelineEvent.NodeId)</span>
+                }
+                else if (Studio.SelectedUiEvent is not null)
+                {
+                    <span>🔍 UI Telemetry Event Detail (#@Studio.SelectedUiEvent.EventId — @Studio.SelectedUiEvent.EventAction)</span>
+                }
+                <button type="button" class="btn btn-sm" @onclick="Studio.CloseEventDetailModal">✕</button>
+            </div>
+
+            <div class="modal-body">
+                @if (Studio.SelectedPipelineEvent is { } pev)
+                {
+                    <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px; margin-bottom:14px;">
+                        <div class="palette-item">
+                            <span style="color:var(--text-muted); font-size:0.72rem;">RUN ID &amp; SEQ</span>
+                            <code>@pev.RunId (seq #@pev.SequenceNum)</code>
+                        </div>
+                        <div class="palette-item">
+                            <span style="color:var(--text-muted); font-size:0.72rem;">COMPONENT</span>
+                            <span><code>&lt;@pev.NodeKind&gt;</code> @pev.NodeId</span>
+                        </div>
+                        <div class="palette-item">
+                            <span style="color:var(--text-muted); font-size:0.72rem;">EVENT &amp; STATUS</span>
+                            <span><strong>@pev.EventType</strong> · @pev.Status</span>
+                        </div>
+                    </div>
+
+                    <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px; margin-bottom:14px;">
+                        <div class="palette-item">
+                            <span style="color:var(--text-muted); font-size:0.72rem;">ROWS METRICS</span>
+                            <span>Read: @pev.RowsRead · Written: @pev.RowsWritten · Affected: @pev.RowsAffected</span>
+                        </div>
+                        <div class="palette-item">
+                            <span style="color:var(--text-muted); font-size:0.72rem;">DB / OS CONTEXT</span>
+                            <span>DB: @pev.DbUserName (SPID @pev.Spid) · OS: @pev.OsUserName</span>
+                        </div>
+                        <div class="palette-item">
+                            <span style="color:var(--text-muted); font-size:0.72rem;">OCCURRED AT</span>
+                            <span>@pev.OccurredAt.ToString("yyyy-MM-dd HH:mm:ss.fff")</span>
+                        </div>
+                    </div>
+
+                    @if (!string.IsNullOrEmpty(pev.ErrorMessage))
+                    {
+                        <div class="form-group">
+                            <label class="form-label" style="color:var(--danger);">Error Detail</label>
+                            <div class="terminal-output" style="border-color:var(--danger); color:#fca5a5;">@pev.ErrorMessage</div>
+                        </div>
+                    }
+
+                    @if (!string.IsNullOrEmpty(pev.NodeOutput))
+                    {
+                        <div class="form-group">
+                            <label class="form-label">Captured Node Output</label>
+                            <div class="terminal-output">@pev.NodeOutput</div>
+                        </div>
+                    }
+                }
+                else if (Studio.SelectedUiEvent is { } uev)
+                {
+                    <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px; margin-bottom:14px;">
+                        <div class="palette-item">
+                            <span style="color:var(--text-muted); font-size:0.72rem;">USER &amp; TIME (UTC)</span>
+                            <span><strong>@uev.Username</strong> at @uev.OccurredAt.ToString("yyyy-MM-dd HH:mm:ss.fff")</span>
+                        </div>
+                        <div class="palette-item">
+                            <span style="color:var(--text-muted); font-size:0.72rem;">CATEGORY / ACTION</span>
+                            <span><code>@uev.EventCategory</code> → <strong>@uev.EventAction</strong></span>
+                        </div>
+                        <div class="palette-item">
+                            <span style="color:var(--text-muted); font-size:0.72rem;">ARTIFACT &amp; STATUS</span>
+                            <span>@(uev.ArtifactType ?? "-") / @(uev.ArtifactName ?? "-") (<strong>@uev.Status</strong>)</span>
+                        </div>
+                    </div>
+
+                    @if (!string.IsNullOrEmpty(uev.ErrorMessage))
+                    {
+                        <div class="form-group">
+                            <label class="form-label" style="color:var(--danger);">Error Message</label>
+                            <div class="terminal-output" style="border-color:var(--danger); color:#fca5a5;">@uev.ErrorMessage</div>
+                        </div>
+                    }
+
+                    @if (!string.IsNullOrEmpty(uev.DetailsJson))
+                    {
+                        <div class="form-group">
+                            <label class="form-label">Details JSON Payload</label>
+                            <div class="terminal-output">@uev.DetailsJson</div>
+                        </div>
+                    }
+                }
+            </div>
+
+            <div class="modal-footer">
+                <button type="button" class="btn btn-primary" @onclick="Studio.CloseEventDetailModal">Close</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    protected override void OnInitialized()
+    {
+        Studio.OnChange += HandleStudioChanged;
+    }
+
+    private void HandleStudioChanged() => _ = InvokeAsync(StateHasChanged);
+
+    public void Dispose()
+    {
+        Studio.OnChange -= HandleStudioChanged;
+    }
+}

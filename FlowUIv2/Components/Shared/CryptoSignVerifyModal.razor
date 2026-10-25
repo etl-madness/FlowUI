@@ -1,0 +1,489 @@
+@implements IDisposable
+@inject StudioStateService Studio
+@inject FlowApiClient ApiClient
+@inject IJSRuntime JS
+
+@if (Studio.IsSignVerifyModalOpen)
+{
+    <div class="modal-overlay" @onclick="Studio.CloseSignVerifyModal">
+        <div class="modal-box modal-lg" style="max-width:860px;" @onclick:stopPropagation="true">
+            <div class="modal-header">
+                <div style="display:flex; align-items:center; gap:8px;">
+                    <span>✍️ Digital Signature &amp; Cryptographic Verification — <code>@Studio.CurrentDraft.Name</code></span>
+                    @if (Studio.CurrentDraft.Signed)
+                    {
+                        <span class="badge badge-success">✍️ SIGNED (@(string.IsNullOrWhiteSpace(Studio.CurrentDraft.SignatureFormat) ? "openssl" : Studio.CurrentDraft.SignatureFormat.ToUpperInvariant()))</span>
+                    }
+                    @if (Studio.CurrentDraft.Encrypted)
+                    {
+                        <span class="badge badge-warn">🔒 ENCRYPTED</span>
+                    }
+                </div>
+                <button type="button" class="btn btn-sm" @onclick="Studio.CloseSignVerifyModal">✕</button>
+            </div>
+
+            <div class="modal-body" style="display:flex; flex-direction:column; gap:14px;">
+                <div style="display:flex; gap:8px; border-bottom:1px solid var(--border); padding-bottom:10px;">
+                    <button type="button" class="btn btn-sm @(_mode == "sign" ? "btn-primary" : "")"
+                            @onclick='() => _mode = "sign"'>
+                        ✍️ Sign Artifact (FLOWSIGNED:v1: / FLOWSIG:v1:)
+                    </button>
+                    <button type="button" class="btn btn-sm @(_mode == "verify" ? "btn-primary" : "")"
+                            @onclick='() => _mode = "verify"'>
+                        🛡️ Verify Signature
+                    </button>
+                    <button type="button" class="btn btn-sm @(_mode == "keygen" ? "btn-primary" : "")"
+                            @onclick='() => _mode = "keygen"'>
+                        🔑 Quick Keypair / Cert Generator
+                    </button>
+                </div>
+
+                @if (!string.IsNullOrWhiteSpace(_statusMessage))
+                {
+                    <div style="padding:8px 12px; border-radius:6px; font-size:0.8rem; background:@(_statusError ? "rgba(239,68,68,0.18)" : "rgba(16,185,129,0.16)"); border:1px solid @(_statusError ? "var(--danger)" : "#10b981"); color:@(_statusError ? "#fca5a5" : "#6ee7b7");">
+                        @(_statusError ? "⚠️" : "✔") @_statusMessage
+                    </div>
+                }
+
+                @if (_mode == "sign")
+                {
+                    <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+                        <div class="form-group" style="margin-bottom:0;">
+                            <label class="form-label">Signature Format (<code>flowcrypto</code> compatible)</label>
+                            <select class="form-control" @bind="_signFormat">
+                                <option value="openssl">OpenSSL (RSA-SHA256 / ECDSA-SHA256 / Ed25519)</option>
+                                <option value="pkcs7">PKCS#7 / CMS Detached Signature (X.509 Certificate)</option>
+                                <option value="gpg">OpenPGP / GPG Detached Signature</option>
+                            </select>
+                        </div>
+                        <div class="form-group" style="margin-bottom:0;">
+                            <label class="form-label">Load from Session Key Vault (Optional)</label>
+                            <select class="form-control" @onchange="OnSelectSavedProfileForSign">
+                                <option value="">-- Select Saved Key Profile or Paste Below --</option>
+                                @foreach (var kp in Studio.SavedKeyProfiles)
+                                {
+                                    <option value="@kp.Name">@kp.Name (@kp.Algorithm / @kp.Format)</option>
+                                }
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="form-group" style="margin-bottom:0;">
+                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+                            <label class="form-label" style="margin-bottom:0;">Private Key PEM / Armored Key (Used only for signing)</label>
+                            <InputFile OnChange="OnLoadPrivateKeyFileAsync" accept=".pem,.key,.asc,.txt" style="font-size:0.72rem;" />
+                        </div>
+                        <textarea class="xml-editor" style="height:120px; border:1px solid var(--border); border-radius:6px;"
+                                  @bind="_privateKeyPem"
+                                  placeholder="-----BEGIN PRIVATE KEY----- or -----BEGIN PGP PRIVATE KEY BLOCK-----"></textarea>
+                    </div>
+
+                    @if (_signFormat == "pkcs7")
+                    {
+                        <div class="form-group" style="margin-bottom:0;">
+                            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+                                <label class="form-label" style="margin-bottom:0;">Signer X.509 Certificate PEM (Required for PKCS#7 / CMS)</label>
+                                <InputFile OnChange="OnLoadCertFileAsync" accept=".pem,.crt,.cer" style="font-size:0.72rem;" />
+                            </div>
+                            <textarea class="xml-editor" style="height:95px; border:1px solid var(--border); border-radius:6px;"
+                                      @bind="_certPem"
+                                      placeholder="-----BEGIN CERTIFICATE-----"></textarea>
+                        </div>
+                    }
+
+                    <div style="display:grid; grid-template-columns:1fr auto; gap:12px; align-items:end;">
+                        <div class="form-group" style="margin-bottom:0;">
+                            <label class="form-label">Private Key Passphrase (Optional)</label>
+                            <input type="password" class="form-control" @bind="_passphrase" placeholder="Leave blank if unencrypted private key" />
+                        </div>
+                        <div style="display:flex; flex-direction:column; gap:4px; padding-bottom:4px;">
+                            <label style="display:flex; align-items:center; gap:6px; cursor:pointer; font-size:0.8rem;">
+                                <input type="checkbox" @bind="_attachUnifiedEnvelope" />
+                                <span>Save as <code>FLOWSIGNED:v1:</code> unified envelope on Save</span>
+                            </label>
+                            <label style="display:flex; align-items:center; gap:6px; cursor:pointer; font-size:0.8rem;">
+                                <input type="checkbox" @bind="Studio.CurrentDraft.Encrypted" />
+                                <span>Also encrypt with AES-256-GCM (<code>FLOWENC:v1:</code> Sign-then-Encrypt)</span>
+                            </label>
+                        </div>
+                    </div>
+
+                    @if (Studio.CurrentDraft.Signed && (!string.IsNullOrWhiteSpace(Studio.CurrentDraft.SignedEnvelopeContent) || !string.IsNullOrWhiteSpace(Studio.CurrentDraft.DetachedSignatureContent)))
+                    {
+                        <div style="padding:10px 12px; background:rgba(16,185,129,0.08); border:1px solid rgba(16,185,129,0.35); border-radius:6px; display:flex; flex-direction:column; gap:8px;">
+                            <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:6px;">
+                                <span style="font-weight:700; font-size:0.78rem; color:#6ee7b7;">
+                                    ✔ Generated Signature Artifacts (@Studio.CurrentDraft.SignatureFormat.ToUpperInvariant())
+                                </span>
+                                <div style="display:flex; gap:6px;">
+                                    <button type="button" class="btn btn-sm" @onclick="DownloadDetachedSigAsync"
+                                            disabled="@string.IsNullOrWhiteSpace(Studio.CurrentDraft.DetachedSignatureContent)">
+                                        ⬇ Download .sig (<code>FLOWSIG:v1:</code>)
+                                    </button>
+                                    <button type="button" class="btn btn-sm" @onclick="DownloadSignedEnvelopeAsync"
+                                            disabled="@string.IsNullOrWhiteSpace(Studio.CurrentDraft.SignedEnvelopeContent)">
+                                        ⬇ Download Signed .xml (<code>FLOWSIGNED:v1:</code>)
+                                    </button>
+                                    <button type="button" class="btn btn-sm btn-danger" @onclick="ClearSignatureFromDraft">
+                                        ✕ Remove Signature
+                                    </button>
+                                </div>
+                            </div>
+                            <textarea class="xml-editor" style="height:75px; border:1px solid var(--border); border-radius:4px; font-size:0.72rem;"
+                                      readonly value="@Studio.CurrentDraft.DetachedSignatureContent"></textarea>
+                        </div>
+                    }
+                }
+                else if (_mode == "verify")
+                {
+                    <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+                        <div class="form-group" style="margin-bottom:0;">
+                            <label class="form-label">Load Verification Key from Session Vault</label>
+                            <select class="form-control" @onchange="OnSelectSavedProfileForVerify">
+                                <option value="">-- Select Saved Key Profile or Paste Below --</option>
+                                @foreach (var kp in Studio.SavedKeyProfiles)
+                                {
+                                    <option value="@kp.Name">@kp.Name (@kp.Algorithm / @kp.Format)</option>
+                                }
+                            </select>
+                        </div>
+                        <div class="form-group" style="margin-bottom:0;">
+                            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+                                <label class="form-label" style="margin-bottom:0;">Detached Signature (<code>FLOWSIG:v1:</code> — leave blank if <code>FLOWSIGNED:v1:</code>)</label>
+                                <InputFile OnChange="OnLoadDetachedSigFileAsync" accept=".sig,.asc,.txt" style="font-size:0.72rem;" />
+                            </div>
+                            <input class="form-control" @bind="_verifyDetachedSig" placeholder="Optional FLOWSIG:v1:... or Base64 signature" />
+                        </div>
+                    </div>
+
+                    <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+                        <div class="form-group" style="margin-bottom:0;">
+                            <label class="form-label">Public Key PEM (OpenSSL RSA / ECDSA / Ed25519)</label>
+                            <textarea class="xml-editor" style="height:105px; border:1px solid var(--border); border-radius:6px;"
+                                      @bind="Studio.ActiveVerifyPublicKeyPem"
+                                      placeholder="-----BEGIN PUBLIC KEY-----"></textarea>
+                        </div>
+                        <div class="form-group" style="margin-bottom:0;">
+                            <label class="form-label">X.509 Certificate / CA PEM or OpenPGP Public Keyring</label>
+                            <textarea class="xml-editor" style="height:105px; border:1px solid var(--border); border-radius:6px;"
+                                      @bind="Studio.ActiveVerifyCertPem"
+                                      placeholder="-----BEGIN CERTIFICATE----- or -----BEGIN PGP PUBLIC KEY BLOCK-----"></textarea>
+                        </div>
+                    </div>
+
+                    @if (Studio.CurrentDraft.LastVerification is not null)
+                    {
+                        var v = Studio.CurrentDraft.LastVerification;
+                        <div style="padding:10px 14px; border-radius:6px; background:@(v.Verified ? "rgba(16,185,129,0.14)" : "rgba(239,68,68,0.16)"); border:1px solid @(v.Verified ? "#10b981" : "var(--danger)");">
+                            <div style="font-weight:700; color:@(v.Verified ? "#6ee7b7" : "#fca5a5");">
+                                @(v.Verified ? $"🛡️ Signature Verified Successfully ({v.Format?.ToUpperInvariant()})" : $"❌ Signature Verification Failed: {v.Error}")
+                            </div>
+                        </div>
+                    }
+                }
+                else if (_mode == "keygen")
+                {
+                    <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px;">
+                        <div class="form-group" style="margin-bottom:0;">
+                            <label class="form-label">Profile Name</label>
+                            <input class="form-control" @bind="_genProfileName" placeholder="pipeline_signing_key" />
+                        </div>
+                        <div class="form-group" style="margin-bottom:0;">
+                            <label class="form-label">Algorithm / Type</label>
+                            <select class="form-control" @bind="_genType">
+                                <option value="ecdsa">ECDSA P-256 (OpenSSL)</option>
+                                <option value="rsa">RSA-2048 (OpenSSL)</option>
+                                <option value="ed25519">Ed25519 (OpenSSL)</option>
+                                <option value="cert">X.509 Code-Signing Certificate (PKCS#7 / CMS)</option>
+                                <option value="gpg">OpenPGP / GPG Keypair (RSA-3072)</option>
+                            </select>
+                        </div>
+                        <div class="form-group" style="margin-bottom:0;">
+                            <label class="form-label">Common Name / Identity</label>
+                            <input class="form-control" @bind="_genCommonName" placeholder="flow-pipeline-signer" />
+                        </div>
+                    </div>
+
+                    <div style="display:flex; justify-content:flex-end;">
+                        <button type="button" class="btn btn-primary" disabled="@_isBusy" @onclick="GenerateKeypairAsync">
+                            🔑 Generate Key Material &amp; Save to Session Vault
+                        </button>
+                    </div>
+                }
+            </div>
+
+            <div class="modal-footer" style="display:flex; justify-content:space-between; align-items:center; width:100%;">
+                <button type="button" class="btn" @onclick="Studio.CloseSignVerifyModal">Close</button>
+                <div style="display:flex; gap:8px;">
+                    @if (_mode == "sign")
+                    {
+                        <button type="button" class="btn btn-primary"
+                                disabled="@(_isBusy || string.IsNullOrWhiteSpace(_privateKeyPem))"
+                                @onclick="ExecuteSignAsync">
+                            ✍️ @(_isBusy ? "Signing..." : $"Sign {Studio.CurrentDraft.ArtifactType.ToUpperInvariant()}")
+                        </button>
+                    }
+                    else if (_mode == "verify")
+                    {
+                        <button type="button" class="btn btn-success"
+                                disabled="@_isBusy"
+                                @onclick="ExecuteVerifyAsync">
+                            🛡️ @(_isBusy ? "Verifying..." : "Verify Signature Now")
+                        </button>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private string _mode = "sign";
+    private string _signFormat = "openssl";
+    private string _privateKeyPem = string.Empty;
+    private string _certPem = string.Empty;
+    private string _passphrase = string.Empty;
+    private bool _attachUnifiedEnvelope = true;
+    private string _verifyDetachedSig = string.Empty;
+
+    private string _genProfileName = "default_signer";
+    private string _genType = "ecdsa";
+    private string _genCommonName = "flow-pipeline-signer";
+
+    private bool _isBusy;
+    private string? _statusMessage;
+    private bool _statusError;
+
+    protected override void OnInitialized()
+    {
+        Studio.OnChange += HandleStudioChanged;
+    }
+
+    private void HandleStudioChanged()
+    {
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    private void OnSelectSavedProfileForSign(ChangeEventArgs e)
+    {
+        var name = e.Value?.ToString();
+        var prof = Studio.SavedKeyProfiles.FirstOrDefault(p => string.Equals(p.Name, name, StringComparison.OrdinalIgnoreCase));
+        if (prof is not null)
+        {
+            _signFormat = prof.Format;
+            _privateKeyPem = prof.PrivateKeyPem;
+            _certPem = prof.CertificatePem;
+        }
+    }
+
+    private void OnSelectSavedProfileForVerify(ChangeEventArgs e)
+    {
+        var name = e.Value?.ToString();
+        var prof = Studio.SavedKeyProfiles.FirstOrDefault(p => string.Equals(p.Name, name, StringComparison.OrdinalIgnoreCase));
+        if (prof is not null)
+        {
+            Studio.ActiveVerifyPublicKeyPem = prof.PublicKeyPem;
+            Studio.ActiveVerifyCertPem = prof.CertificatePem;
+            Studio.ActiveVerifyCaCertPem = prof.CaCertificatePem;
+        }
+    }
+
+    private async Task OnLoadPrivateKeyFileAsync(InputFileChangeEventArgs e)
+    {
+        if (e.File is null) return;
+        await using var stream = e.File.OpenReadStream(2 * 1024 * 1024);
+        using var reader = new StreamReader(stream);
+        _privateKeyPem = await reader.ReadToEndAsync();
+    }
+
+    private async Task OnLoadCertFileAsync(InputFileChangeEventArgs e)
+    {
+        if (e.File is null) return;
+        await using var stream = e.File.OpenReadStream(2 * 1024 * 1024);
+        using var reader = new StreamReader(stream);
+        _certPem = await reader.ReadToEndAsync();
+    }
+
+    private async Task OnLoadDetachedSigFileAsync(InputFileChangeEventArgs e)
+    {
+        if (e.File is null) return;
+        await using var stream = e.File.OpenReadStream(2 * 1024 * 1024);
+        using var reader = new StreamReader(stream);
+        _verifyDetachedSig = (await reader.ReadToEndAsync()).Trim();
+    }
+
+    private async Task ExecuteSignAsync()
+    {
+        _isBusy = true;
+        _statusMessage = null;
+        try
+        {
+            await Studio.SignCurrentDraftAsync(_signFormat, _privateKeyPem, _certPem, _passphrase, _attachUnifiedEnvelope);
+            if (Studio.CurrentDraft.Signed)
+            {
+                _statusError = false;
+                _statusMessage = $"Successfully signed '{Studio.CurrentDraft.Name}' with {_signFormat.ToUpperInvariant()}. Click Save in the designer toolbar to persist to go-flowAPI.";
+            }
+        }
+        catch (Exception ex)
+        {
+            _statusError = true;
+            _statusMessage = ex.Message;
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private async Task ExecuteVerifyAsync()
+    {
+        _isBusy = true;
+        _statusMessage = null;
+        try
+        {
+            var isPgp = Studio.ActiveVerifyCertPem.Contains("PGP PUBLIC KEY", StringComparison.OrdinalIgnoreCase);
+            var res = await Studio.VerifyCurrentDraftSignatureAsync(
+                signatureOverride: _verifyDetachedSig,
+                publicKeyPem: Studio.ActiveVerifyPublicKeyPem,
+                certPem: isPgp ? string.Empty : Studio.ActiveVerifyCertPem,
+                caCertPem: Studio.ActiveVerifyCaCertPem,
+                keyringAsc: isPgp ? Studio.ActiveVerifyCertPem : Studio.ActiveVerifyKeyringAsc);
+
+            _statusError = !res.Verified;
+            _statusMessage = res.Verified
+                ? $"Cryptographic verification passed ({res.Format.ToUpperInvariant()})."
+                : $"Verification failed: {res.Error}";
+        }
+        catch (Exception ex)
+        {
+            _statusError = true;
+            _statusMessage = ex.Message;
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private async Task GenerateKeypairAsync()
+    {
+        _isBusy = true;
+        _statusMessage = null;
+        try
+        {
+            CryptoKeygenResponse? gen = null;
+            if (Studio.ApiOnline)
+            {
+                try
+                {
+                    gen = await ApiClient.CryptoKeygenAsync(new CryptoKeygenRequest
+                    {
+                        Type = _genType,
+                        Bits = 2048,
+                        Curve = "P256",
+                        CommonName = _genCommonName,
+                        Organization = "Flow Studio",
+                        ValidDays = 365,
+                        Name = _genCommonName,
+                        Email = $"{_genCommonName}@flow.local"
+                    });
+                }
+                catch
+                {
+                    // Fallback to local .NET crypto generator below
+                }
+            }
+
+            if (gen is null)
+            {
+                if (_genType == "rsa")
+                {
+                    var (priv, pub) = Studio.Crypto.GenerateRsaKeyPairLocal(2048);
+                    gen = new CryptoKeygenResponse { Type = "rsa", Algorithm = "RSA-2048", PrivateKeyPem = priv, PublicKeyPem = pub };
+                }
+                else if (_genType == "cert")
+                {
+                    var (priv, cert, pub) = Studio.Crypto.GenerateSelfSignedCertLocal(_genCommonName, "Flow Studio", 365);
+                    gen = new CryptoKeygenResponse { Type = "cert", Algorithm = "X.509-ECDSA-P256", PrivateKeyPem = priv, CertificatePem = cert, PublicKeyPem = pub };
+                }
+                else
+                {
+                    var (priv, pub) = Studio.Crypto.GenerateEcdsaKeyPairLocal("P256");
+                    gen = new CryptoKeygenResponse { Type = "ecdsa", Algorithm = "ECDSA-P256", PrivateKeyPem = priv, PublicKeyPem = pub };
+                }
+            }
+
+            var fmt = _genType switch
+            {
+                "cert" => "pkcs7",
+                "gpg" => "gpg",
+                _ => "openssl"
+            };
+
+            var profile = new SavedCryptoKeyProfile
+            {
+                Name = string.IsNullOrWhiteSpace(_genProfileName) ? $"key_{DateTime.Now:HHmmss}" : _genProfileName.Trim(),
+                Algorithm = gen.Algorithm,
+                Format = fmt,
+                PrivateKeyPem = gen.PrivateKeyPem,
+                PublicKeyPem = gen.PublicKeyPem,
+                CertificatePem = gen.CertificatePem
+            };
+
+            Studio.UpsertSavedKeyProfile(profile);
+            _signFormat = fmt;
+            _privateKeyPem = profile.PrivateKeyPem;
+            _certPem = profile.CertificatePem;
+            Studio.ActiveVerifyPublicKeyPem = profile.PublicKeyPem;
+            if (!string.IsNullOrWhiteSpace(profile.CertificatePem))
+                Studio.ActiveVerifyCertPem = profile.CertificatePem;
+            else if (_genType == "gpg" && !string.IsNullOrWhiteSpace(profile.PublicKeyPem))
+                Studio.ActiveVerifyCertPem = profile.PublicKeyPem;
+
+            _statusError = false;
+            _statusMessage = $"Generated {gen.Algorithm} keypair '{profile.Name}' and loaded it into Sign & Verify fields.";
+            _mode = "sign";
+        }
+        catch (Exception ex)
+        {
+            _statusError = true;
+            _statusMessage = $"Key generation failed: {ex.Message}";
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private async Task DownloadDetachedSigAsync()
+    {
+        if (string.IsNullOrWhiteSpace(Studio.CurrentDraft.DetachedSignatureContent)) return;
+        var filename = $"{Studio.CurrentDraft.Name}.xml.sig";
+        await JS.InvokeVoidAsync("flowStudio.downloadXmlFile", filename, Studio.CurrentDraft.DetachedSignatureContent);
+    }
+
+    private async Task DownloadSignedEnvelopeAsync()
+    {
+        if (string.IsNullOrWhiteSpace(Studio.CurrentDraft.SignedEnvelopeContent)) return;
+        var filename = $"{Studio.CurrentDraft.Name}.signed.xml";
+        await JS.InvokeVoidAsync("flowStudio.downloadXmlFile", filename, Studio.CurrentDraft.SignedEnvelopeContent);
+    }
+
+    private void ClearSignatureFromDraft()
+    {
+        Studio.CurrentDraft.Signed = false;
+        Studio.CurrentDraft.SignatureFormat = string.Empty;
+        Studio.CurrentDraft.SignedEnvelopeContent = string.Empty;
+        Studio.CurrentDraft.DetachedSignatureContent = string.Empty;
+        Studio.CurrentDraft.LastVerification = null;
+        Studio.CurrentDraft.IsDirty = true;
+        _statusMessage = "Removed signature envelope from active draft.";
+        Studio.NotifyStateChanged();
+    }
+
+    public void Dispose()
+    {
+        Studio.OnChange -= HandleStudioChanged;
+    }
+}

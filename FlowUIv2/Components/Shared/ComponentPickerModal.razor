@@ -1,0 +1,84 @@
+@implements IDisposable
+@inject StudioStateService Studio
+@inject CatalogService Catalog
+
+@if (Studio.IsComponentPickerModalOpen && Studio.PickerParentNodeId.HasValue)
+{
+    var isConfig = string.Equals(Studio.CurrentDraft.ArtifactType, "config", StringComparison.OrdinalIgnoreCase);
+    var flowGroups = Catalog.GetGroupedByCategory(configOnly: isConfig)
+        .Select(g => (
+            Category: g.Category,
+            Items: g.Items.Where(i => i.Section == "flow" || i.Section == "preflight").ToList()
+        ))
+        .Where(g => g.Items.Count > 0)
+        .ToList();
+
+    <div class="modal-overlay" @onclick="Studio.CloseComponentPickerModal">
+        <div class="modal-box modal-lg" @onclick:stopPropagation="true">
+            <div class="modal-header">
+                <div>
+                    Add Step Inside: <span style="color:#60a5fa;">@Studio.PickerParentLabel</span>
+                </div>
+                <button type="button" class="btn btn-sm" @onclick="Studio.CloseComponentPickerModal">✕</button>
+            </div>
+
+            <div class="modal-body">
+                <div class="form-group">
+                    <input class="form-control" placeholder="Filter components by tag, name, or description..."
+                           @bind="_filter" @bind:event="oninput" />
+                </div>
+
+                @foreach (var grp in flowGroups)
+                {
+                    var matching = grp.Items.Where(MatchesFilter).ToList();
+                    if (matching.Count > 0)
+                    {
+                        <div class="category-group">
+                            <div class="category-title">@grp.Category</div>
+                            <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(240px, 1fr)); gap:8px;">
+                                @foreach (var comp in matching)
+                                {
+                                    <div class="palette-item" style="cursor:pointer;" @onclick="() => Studio.OpenAddNodeModal(comp.Type, Studio.PickerParentNodeId)">
+                                        <div class="palette-item-header">
+                                            <span class="palette-tag">&lt;@comp.Tag&gt;</span>
+                                            <span style="font-weight:600; font-size:0.8rem;">@comp.Name</span>
+                                        </div>
+                                        <div class="palette-desc">@comp.Description</div>
+                                    </div>
+                                }
+                            </div>
+                        </div>
+                    }
+                }
+            </div>
+
+            <div class="modal-footer">
+                <button type="button" class="btn" @onclick="Studio.CloseComponentPickerModal">Close</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private string _filter = string.Empty;
+
+    protected override void OnInitialized()
+    {
+        Studio.OnChange += HandleStudioChanged;
+    }
+
+    private void HandleStudioChanged() => _ = InvokeAsync(StateHasChanged);
+
+    public void Dispose()
+    {
+        Studio.OnChange -= HandleStudioChanged;
+    }
+
+    private bool MatchesFilter(ComponentMeta c)
+    {
+        if (string.IsNullOrWhiteSpace(_filter)) return true;
+        return c.Tag.Contains(_filter, StringComparison.OrdinalIgnoreCase)
+            || c.Name.Contains(_filter, StringComparison.OrdinalIgnoreCase)
+            || c.Description.Contains(_filter, StringComparison.OrdinalIgnoreCase);
+    }
+}

@@ -1,0 +1,311 @@
+@inject StudioStateService Studio
+@inject FlowApiClient ApiClient
+
+<div class="workspace-full">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px;">
+        <div style="display:flex; gap:8px;">
+            <button type="button" class="btn @(_subTab == "runs" ? "btn-primary" : "")" @onclick='() => SwitchSubTabAsync("runs")'>
+                📊 Pipeline Runs &amp; Step Events (go-flowAPI)
+            </button>
+            <button type="button" class="btn @(_subTab == "ui_events" ? "btn-primary" : "")" @onclick='() => SwitchSubTabAsync("ui_events")'>
+                🖥 UI Session Activity Events
+            </button>
+            <button type="button" class="btn @(_subTab == "api_audit" ? "btn-primary" : "")" @onclick='() => SwitchSubTabAsync("api_audit")'>
+                🛡 API Audit Logs (/api/v1/audit)
+            </button>
+        </div>
+
+        <button type="button" class="btn btn-sm" @onclick="RefreshCurrentSubTabAsync">
+            🔄 Refresh Telemetry
+        </button>
+    </div>
+
+    @if (_subTab == "runs")
+    {
+        <div style="display:grid; grid-template-columns:460px 1fr; gap:16px; height:calc(100vh - 155px);">
+            <!-- Left Runs Table -->
+            <div class="panel" style="border:1px solid var(--border); border-radius:8px;">
+                <div class="panel-header">
+                    <span>Pipeline Runs (@_runs.Count)</span>
+                    <select class="form-control" style="width:140px; padding:3px 6px;" value="@_runStatusFilter" @onchange="OnRunStatusFilterChangedAsync">
+                        <option value="">All Statuses</option>
+                        <option value="succeeded">succeeded</option>
+                        <option value="failed">failed</option>
+                        <option value="running">running</option>
+                    </select>
+                </div>
+                <div class="panel-body" style="padding:0;">
+                    <table class="data-table" style="margin-top:0;">
+                        <thead>
+                            <tr>
+                                <th>Run ID / File</th>
+                                <th>Status</th>
+                                <th>Duration</th>
+                                <th>Started (UTC)</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @if (_runs.Count == 0)
+                            {
+                                <tr>
+                                    <td colspan="4" style="text-align:center; padding:18px; color:var(--text-muted);">
+                                        No pipeline runs found.
+                                    </td>
+                                </tr>
+                            }
+                            else
+                            {
+                                @foreach (var r in _runs)
+                                {
+                                    var isSelected = _selectedRunId == r.RunId;
+                                    <tr style="cursor:pointer; background:@(isSelected ? "rgba(59,130,246,0.16)" : "transparent");"
+                                        @onclick="() => SelectRunAsync(r.RunId)">
+                                        <td>
+                                            <div style="font-weight:600; color:#93c5fd;">@(string.IsNullOrEmpty(r.FilePath) ? r.RunId : r.FilePath)</div>
+                                            <code style="font-size:0.7rem; color:var(--text-muted);">@r.RunId</code>
+                                        </td>
+                                        <td><span class="badge @GetBadgeClass(r.Status)">@r.Status</span></td>
+                                        <td>@r.DurationMs ms</td>
+                                        <td style="font-size:0.75rem;">@r.StartedAt.ToString("MM-dd HH:mm:ss")</td>
+                                    </tr>
+                                }
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Right Step Events for Selected Run -->
+            <div class="panel" style="border:1px solid var(--border); border-radius:8px;">
+                <div class="panel-header">
+                    <span>Step Execution Events @(string.IsNullOrEmpty(_selectedRunId) ? "" : $"for Run {_selectedRunId}") (@_runEvents.Count)</span>
+                    <span class="section-badge">Click any row for full output &amp; SQL SPID details</span>
+                </div>
+                <div class="panel-body" style="padding:0;">
+                    <table class="data-table" style="margin-top:0;">
+                        <thead>
+                            <tr>
+                                <th>Seq</th>
+                                <th>Event</th>
+                                <th>Component</th>
+                                <th>Node ID</th>
+                                <th>Status</th>
+                                <th>Rows (R/W/A)</th>
+                                <th>Time</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @if (_runEvents.Count == 0)
+                            {
+                                <tr>
+                                    <td colspan="7" style="text-align:center; padding:20px; color:var(--text-muted);">
+                                        Select a pipeline run on the left to inspect its node events.
+                                    </td>
+                                </tr>
+                            }
+                            else
+                            {
+                                @foreach (var ev in _runEvents)
+                                {
+                                    <tr style="cursor:pointer;" @onclick="() => Studio.OpenPipelineEventDetail(ev)">
+                                        <td>#@ev.SequenceNum</td>
+                                        <td><code>@ev.EventType</code></td>
+                                        <td><span class="palette-tag">&lt;@ev.NodeKind&gt;</span></td>
+                                        <td><strong>@ev.NodeId</strong></td>
+                                        <td><span class="badge @GetBadgeClass(ev.Status)">@ev.Status</span></td>
+                                        <td style="font-family:monospace; font-size:0.75rem;">@ev.RowsRead / @ev.RowsWritten / @ev.RowsAffected</td>
+                                        <td style="font-size:0.74rem;">@ev.OccurredAt.ToString("HH:mm:ss.fff")</td>
+                                    </tr>
+                                }
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    }
+    else if (_subTab == "ui_events")
+    {
+        <div class="panel" style="border:1px solid var(--border); border-radius:8px; height:calc(100vh - 155px);">
+            <div class="panel-header">
+                <span>UI Session Activity &amp; RBAC Telemetry (@_uiEvents.Count rows)</span>
+                <div style="display:flex; gap:8px;">
+                    <input class="form-control" style="width:180px; padding:4px 8px;" placeholder="Filter category (AUTH, DESIGNER...)"
+                           @bind="_uiCategoryFilter" @bind:event="oninput" />
+                    <button type="button" class="btn btn-sm" @onclick="LoadUiEventsAsync">Filter</button>
+                </div>
+            </div>
+            <div class="panel-body" style="padding:0;">
+                <table class="data-table" style="margin-top:0;">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Occurred (UTC)</th>
+                            <th>User</th>
+                            <th>Category</th>
+                            <th>Action</th>
+                            <th>Artifact</th>
+                            <th>Status</th>
+                            <th>Duration</th>
+                            <th>Details</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var uev in _uiEvents)
+                        {
+                            <tr style="cursor:pointer;" @onclick="() => Studio.OpenUiEventDetail(uev)">
+                                <td>#@uev.EventId</td>
+                                <td style="font-size:0.76rem;">@uev.OccurredAt.ToString("yyyy-MM-dd HH:mm:ss")</td>
+                                <td><strong>@uev.Username</strong></td>
+                                <td><code>@uev.EventCategory</code></td>
+                                <td>@uev.EventAction</td>
+                                <td>@(uev.ArtifactType ?? "-") : @(uev.ArtifactName ?? "-")</td>
+                                <td><span class="badge @GetBadgeClass(uev.Status)">@uev.Status</span></td>
+                                <td>@(uev.DurationMs.HasValue ? $"{uev.DurationMs} ms" : "-")</td>
+                                <td style="max-width:260px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-family:monospace; font-size:0.74rem;">
+                                    @(uev.ErrorMessage ?? uev.DetailsJson ?? "")
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    }
+    else if (_subTab == "api_audit")
+    {
+        <div class="panel" style="border:1px solid var(--border); border-radius:8px; height:calc(100vh - 155px);">
+            <div class="panel-header">
+                <span>Backend go-flowAPI Audit Trail (<code>/api/v1/audit</code> — @_apiAuditLogs.Count rows)</span>
+            </div>
+            <div class="panel-body" style="padding:0;">
+                <table class="data-table" style="margin-top:0;">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Time (UTC)</th>
+                            <th>Event Type</th>
+                            <th>HTTP</th>
+                            <th>Artifact</th>
+                            <th>Auth User</th>
+                            <th>Status</th>
+                            <th>Duration</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var a in _apiAuditLogs)
+                        {
+                            <tr>
+                                <td>#@a.EventId</td>
+                                <td style="font-size:0.76rem;">@a.OccurredAt.ToString("yyyy-MM-dd HH:mm:ss")</td>
+                                <td><code>@a.EventType</code></td>
+                                <td><strong>@a.HttpMethod</strong> <code>@a.Path</code></td>
+                                <td>@a.ArtifactType / @a.ArtifactName</td>
+                                <td>@a.AuthUser</td>
+                                <td><span class="badge @GetBadgeClass(a.Status)">@a.Status (@a.StatusCode)</span></td>
+                                <td>@a.DurationMs ms</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private string _subTab = "runs";
+    private string _runStatusFilter = string.Empty;
+    private string _selectedRunId = string.Empty;
+    private string _uiCategoryFilter = string.Empty;
+
+    private List<PipelineRunRecord> _runs = new();
+    private List<PipelineEventRecord> _runEvents = new();
+    private List<UiEventRecord> _uiEvents = new();
+    private List<ApiAuditRecord> _apiAuditLogs = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await RefreshCurrentSubTabAsync();
+    }
+
+    private async Task SwitchSubTabAsync(string sub)
+    {
+        _subTab = sub;
+        await RefreshCurrentSubTabAsync();
+    }
+
+    private async Task RefreshCurrentSubTabAsync()
+    {
+        if (_subTab == "runs")
+        {
+            await LoadRunsAsync();
+        }
+        else if (_subTab == "ui_events")
+        {
+            await LoadUiEventsAsync();
+        }
+        else if (_subTab == "api_audit")
+        {
+            try
+            {
+                _apiAuditLogs = await ApiClient.GetApiAuditLogsAsync(200);
+            }
+            catch (Exception ex)
+            {
+                Studio.ShowBanner($"Could not load API audit logs: {ex.Message}", "warning");
+            }
+        }
+    }
+
+    private async Task LoadRunsAsync()
+    {
+        try
+        {
+            _runs = await ApiClient.GetPipelineRunsAsync(_runStatusFilter, 150);
+            if (_runs.Count > 0 && string.IsNullOrEmpty(_selectedRunId))
+            {
+                await SelectRunAsync(_runs[0].RunId);
+            }
+        }
+        catch (Exception ex)
+        {
+            Studio.ShowBanner($"Could not fetch pipeline runs from go-flowAPI: {ex.Message}", "warning");
+        }
+    }
+
+    private async Task OnRunStatusFilterChangedAsync(ChangeEventArgs e)
+    {
+        _runStatusFilter = e.Value?.ToString() ?? string.Empty;
+        await LoadRunsAsync();
+    }
+
+    private async Task SelectRunAsync(string runId)
+    {
+        _selectedRunId = runId;
+        try
+        {
+            _runEvents = await ApiClient.GetPipelineEventsAsync(runId, 500);
+        }
+        catch (Exception ex)
+        {
+            Studio.ShowBanner($"Failed to load events for run {runId}: {ex.Message}", "error");
+        }
+    }
+
+    private Task LoadUiEventsAsync()
+    {
+        _uiEvents = Studio.GetUiEvents(250, string.IsNullOrWhiteSpace(_uiCategoryFilter) ? null : _uiCategoryFilter.Trim());
+        return Task.CompletedTask;
+    }
+
+    private static string GetBadgeClass(string status)
+    {
+        if (string.IsNullOrEmpty(status)) return "badge-running";
+        var s = status.ToUpperInvariant();
+        if (s.Contains("SUCC") || s.Contains("OK") || s.Contains("COMP")) return "badge-success";
+        if (s.Contains("FAIL") || s.Contains("ERR") || s.Contains("DENIED")) return "badge-error";
+        if (s.Contains("RUN")) return "badge-running";
+        return "badge-warn";
+    }
+}

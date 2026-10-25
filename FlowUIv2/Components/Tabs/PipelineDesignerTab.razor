@@ -1,0 +1,779 @@
+@implements IDisposable
+@inject StudioStateService Studio
+@inject CatalogService Catalog
+@inject FlowApiClient ApiClient
+@inject IAuthenticationService Auth
+@inject IJSRuntime JS
+
+<div class="workspace">
+    <!-- LEFT PANE: Component Palette -->
+    <div class="panel">
+        @{
+            var paletteGroups = Catalog.GetGroupedByCategory(configOnly: IsConfigArtifact);
+            var totalPaletteCount = paletteGroups.Sum(g => g.Items.Count);
+        }
+        <div class="panel-header">
+            <span>🧩 @(IsConfigArtifact ? "Config" : "Component") Palette (@totalPaletteCount)</span>
+            <span class="section-badge">@paletteGroups.Count Categories</span>
+        </div>
+        <div style="padding:8px 12px; border-bottom:1px solid var(--border);">
+            <input class="form-control" placeholder="Search <tag> or component..."
+                   @bind="_paletteFilter" @bind:event="oninput" />
+        </div>
+        <div class="panel-body">
+            @foreach (var grp in paletteGroups)
+            {
+                var visible = grp.Items.Where(MatchesPaletteFilter).ToList();
+                if (visible.Count > 0)
+                {
+                    <div class="category-group">
+                        <div class="category-title">@grp.Category</div>
+                        @foreach (var comp in visible)
+                        {
+                            <div class="palette-item">
+                                <div class="palette-item-header">
+                                    <span class="palette-tag">&lt;@comp.Tag&gt;</span>
+                                    <div style="display:flex; gap:4px;">
+                                        <button type="button" class="btn btn-sm" title="Component Guide"
+                                                @onclick="() => Studio.OpenDocModal(comp.Type)">
+                                            📖
+                                        </button>
+                                        <button type="button" class="btn btn-sm btn-primary"
+                                                disabled="@(!CanAddNode || IsOptionsArtifact)"
+                                                title="@(IsOptionsArtifact ? "Switch to a Pipeline or Config artifact to add flow components" : $"Add <{comp.Tag}>")"
+                                                @onclick="() => Studio.OpenAddNodeModal(comp.Type)">
+                                            + Add
+                                        </button>
+                                    </div>
+                                </div>
+                                <div style="font-weight:600; font-size:0.79rem;">@comp.Name</div>
+                                <div class="palette-desc">@comp.Description</div>
+                            </div>
+                        }
+                    </div>
+                }
+            }
+        </div>
+    </div>
+
+    <!-- CENTER PANE: Visual Designer Canvas -->
+    <div class="canvas-area">
+        <!-- Database Artifact Selectors Toolbar (Pipeline, Config, Options) -->
+        <div class="canvas-toolbar" style="flex-direction:column; align-items:stretch; gap:8px; padding:10px 16px;">
+            <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap;">
+                <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+                    <!-- 1. Database Pipeline Selector -->
+                    <div style="display:flex; align-items:center; gap:4px;">
+                        <label style="font-weight:700; font-size:0.76rem; color:@(IsPipelineArtifact ? "var(--accent)" : "var(--text-muted)"); white-space:nowrap;">
+                            🔀 Pipeline (@Studio.Pipelines.Count):
+                        </label>
+                        <select class="form-control"
+                                style="width:185px; border-color:@(IsPipelineArtifact && Studio.CurrentDraft.ApiArtifactId.HasValue ? "var(--accent)" : "var(--border)");"
+                                value="@EffectivePipelineId"
+                                @onchange="OnSelectPipelineFromDbAsync">
+                            <option value="">-- Select DB Pipeline --</option>
+                            @foreach (var p in Studio.Pipelines)
+                            {
+                                <option value="@p.Id">@p.Name (#@p.Id)@(p.Encrypted ? " 🔒" : "")@(p.Signed ? " ✍️" : "")</option>
+                            }
+                        </select>
+                        <button type="button" class="btn btn-sm"
+                                disabled="@(string.IsNullOrEmpty(EffectivePipelineId))"
+                                @onclick="EditSelectedPipelineFromDbAsync"
+                                title="Load selected Pipeline from database into designer for editing">
+                            ✎ Edit
+                        </button>
+                    </div>
+
+                    <!-- 2. Database Config Selector -->
+                    <div style="display:flex; align-items:center; gap:4px;">
+                        <label style="font-weight:700; font-size:0.76rem; color:@(IsConfigArtifact ? "#f59e0b" : "var(--text-muted)"); white-space:nowrap;">
+                            ⚙️ Config (@Studio.Configs.Count):
+                        </label>
+                        <select class="form-control"
+                                style="width:185px; border-color:@(IsConfigArtifact && Studio.CurrentDraft.ApiArtifactId.HasValue ? "#f59e0b" : "var(--border)");"
+                                value="@EffectiveConfigId"
+                                @onchange="OnSelectConfigFromDbAsync">
+                            <option value="">-- Select DB Config --</option>
+                            @foreach (var c in Studio.Configs)
+                            {
+                                <option value="@c.Id">@c.Name (#@c.Id)@(c.Encrypted ? " 🔒" : "")@(c.Signed ? " ✍️" : "")</option>
+                            }
+                        </select>
+                        <button type="button" class="btn btn-sm"
+                                disabled="@(string.IsNullOrEmpty(EffectiveConfigId))"
+                                @onclick="EditSelectedConfigFromDbAsync"
+                                title="Load selected Config from database into designer for editing">
+                            ✎ Edit
+                        </button>
+                    </div>
+
+                    <!-- 3. Database Options Selector -->
+                    <div style="display:flex; align-items:center; gap:4px;">
+                        <label style="font-weight:700; font-size:0.76rem; color:@(IsOptionsArtifact ? "#10b981" : "var(--text-muted)"); white-space:nowrap;">
+                            🎛 Options (@Studio.OptionsList.Count):
+                        </label>
+                        <select class="form-control"
+                                style="width:190px; border-color:@(IsOptionsArtifact && Studio.CurrentDraft.ApiArtifactId.HasValue ? "#10b981" : "var(--border)");"
+                                value="@EffectiveOptionsId"
+                                @onchange="OnSelectOptionsFromDbAsync">
+                            <option value="">-- Select DB Options --</option>
+                            @foreach (var o in Studio.OptionsList)
+                            {
+                                <option value="@o.Id">@o.Name (#@o.Id)@(o.Encrypted ? " 🔒" : "")@(o.Signed ? " ✍️" : "")</option>
+                            }
+                        </select>
+                        <button type="button" class="btn btn-sm"
+                                disabled="@(string.IsNullOrEmpty(EffectiveOptionsId))"
+                                @onclick="EditSelectedOptionsFromDbAsync"
+                                title="Load selected Options from database into designer for editing">
+                            ✎ Edit
+                        </button>
+                    </div>
+
+                    <button type="button" class="btn btn-sm" @onclick="Studio.RefreshHealthAndArtifactsAsync"
+                            title="Refresh Pipelines, Configs, and Options from go-flowAPI">
+                        🔄 Refresh API
+                    </button>
+
+                    <button type="button" class="btn btn-sm"
+                            disabled="@(!CanModifyCanvas)"
+                            @onclick="() => Studio.OpenUploadModal(Studio.CurrentDraft.ArtifactType)"
+                            title="Select a local Pipeline, Config, or Options .xml file and upload via go-flowAPI">
+                        📂 Upload File...
+                    </button>
+                </div>
+
+                <!-- Actions: New / Save / Delete / Validate / Run -->
+                <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
+                    <div style="display:flex; gap:4px;">
+                        <button type="button" class="btn btn-sm" disabled="@(!Auth.CurrentPermissions.CanCreate)"
+                                @onclick='() => Studio.CreateNewArtifactDraftAsync("pipeline")' title="Create a new Pipeline draft">
+                            ➕ Pipeline
+                        </button>
+                        <button type="button" class="btn btn-sm" disabled="@(!Auth.CurrentPermissions.CanCreate)"
+                                @onclick='() => Studio.CreateNewArtifactDraftAsync("config")' title="Create a new Config draft">
+                            ➕ Config
+                        </button>
+                        <button type="button" class="btn btn-sm" disabled="@(!Auth.CurrentPermissions.CanCreate)"
+                                @onclick='() => Studio.CreateNewArtifactDraftAsync("options")' title="Create a new Options draft">
+                            ➕ Options
+                        </button>
+                    </div>
+
+                    <button type="button" class="btn btn-sm btn-primary"
+                            disabled="@(!CanSaveArtifact)"
+                            @onclick="() => Studio.SaveCurrentArtifactAsync()"
+                            title="Save active artifact to database and go-flowAPI">
+                        💾 Save @Studio.CurrentDraft.ArtifactType.ToUpperInvariant()@(Studio.CurrentDraft.IsDirty ? " *" : "")
+                    </button>
+
+                    <button type="button" class="btn btn-sm"
+                            @onclick="Studio.OpenSignVerifyModal"
+                            title="Sign or Verify active artifact with OpenSSL, PKCS#7/CMS, or GPG">
+                        ✍️ @(Studio.CurrentDraft.Signed ? $"Signed ({Studio.CurrentDraft.SignatureFormat.ToUpperInvariant()})" : "Sign / Verify")
+                    </button>
+
+                    @if (Studio.CurrentDraft.ApiArtifactId.HasValue)
+                    {
+                        <button type="button" class="btn btn-sm btn-danger"
+                                disabled="@(!Auth.CurrentPermissions.CanDelete)"
+                                @onclick="DeleteSelectedArtifactAsync"
+                                title="Delete current artifact from database and go-flowAPI">
+                            🗑 Delete
+                        </button>
+                    }
+
+                    @if (!IsOptionsArtifact)
+                    {
+                        <button type="button" class="btn btn-sm" @onclick="ValidateCurrentPipelineAsync" title="Validate XML against go-flowAPI /api/v1/validate">
+                            ✔ Validate
+                        </button>
+                    }
+
+                    <button type="button" class="btn btn-sm btn-success"
+                            disabled="@(!Auth.CurrentPermissions.CanExecute)"
+                            @onclick='() => Studio.SetActiveTabAsync("runner")'
+                            title="Open Pipeline Runner">
+                        ▶ Run
+                    </button>
+
+                    <button type="button" class="btn btn-sm btn-danger"
+                            disabled="@(!CanModifyCanvas)"
+                            @onclick="ClearCurrentArtifactNodesAsync"
+                            title="Clear all nodes/options on canvas">
+                        🧹 Clear
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Active Artifact Metadata Row -->
+        <div style="padding:10px 16px; background:rgba(128,128,128,0.05); border-bottom:1px solid var(--border); display:grid; grid-template-columns:auto 220px 1fr auto auto; gap:10px; align-items:center;">
+            <div style="display:flex; align-items:center; gap:6px;">
+                @if (IsConfigArtifact)
+                {
+                    <span class="badge badge-warn" style="font-size:0.75rem; padding:4px 8px;">
+                        ⚙️ EDITING CONFIG @(Studio.CurrentDraft.ApiArtifactId.HasValue ? $"(#{Studio.CurrentDraft.ApiArtifactId})" : "(NEW)")
+                    </span>
+                }
+                else if (IsOptionsArtifact)
+                {
+                    <span class="badge badge-success" style="font-size:0.75rem; padding:4px 8px;">
+                        🎛 EDITING OPTIONS @(Studio.CurrentDraft.ApiArtifactId.HasValue ? $"(#{Studio.CurrentDraft.ApiArtifactId})" : "(NEW)")
+                    </span>
+                }
+                else
+                {
+                    <span class="badge badge-running" style="font-size:0.75rem; padding:4px 8px;">
+                        🔀 EDITING PIPELINE @(Studio.CurrentDraft.ApiArtifactId.HasValue ? $"(#{Studio.CurrentDraft.ApiArtifactId})" : "(NEW)")
+                    </span>
+                }
+                @if (Studio.CurrentDraft.Signed)
+                {
+                    <span class="badge badge-success" style="font-size:0.72rem; cursor:pointer;" @onclick="Studio.OpenSignVerifyModal" title="Click to inspect or verify digital signature">
+                        ✍️ SIGNED (@(string.IsNullOrWhiteSpace(Studio.CurrentDraft.SignatureFormat) ? "OPENSSL" : Studio.CurrentDraft.SignatureFormat.ToUpperInvariant()))
+                    </span>
+                }
+            </div>
+            <div>
+                <input class="form-control" placeholder="Artifact Name"
+                       value="@Studio.CurrentDraft.Name"
+                       @oninput="OnNameChanged" />
+            </div>
+            <div>
+                <input class="form-control" placeholder="Artifact Description"
+                       value="@Studio.CurrentDraft.Description"
+                       @oninput="OnDescriptionChanged" />
+            </div>
+            <div style="display:flex; align-items:center; gap:8px;">
+                <label style="display:flex; align-items:center; gap:5px; cursor:pointer; font-size:0.76rem; color:var(--text-secondary); white-space:nowrap;"
+                       title="Encrypt artifact content at rest using AES-256-GCM (FLOWENC:v1:)">
+                    <input type="checkbox" checked="@Studio.CurrentDraft.Encrypted"
+                           @onchange="e => { Studio.CurrentDraft.Encrypted = (bool)(e.Value ?? false); Studio.CurrentDraft.IsDirty = true; }" />
+                    <span>🔒 Encrypt</span>
+                </label>
+                @if (Studio.CurrentDraft.Encrypted)
+                {
+                    <input type="password" class="form-control" style="width:150px; padding:3px 7px; font-size:0.74rem;"
+                           placeholder="Secure Key (optional)"
+                           value="@Studio.SessionSecureKey"
+                           @onchange="e => Studio.SetSessionSecureKey(e.Value?.ToString())"
+                           title="AES-256-GCM Secure Key (leave blank to use go-flowAPI server FLOW_SECURE_KEY)" />
+                }
+            </div>
+            <div class="section-badge">
+                @if (IsOptionsArtifact)
+                {
+                    <span>CLI Flags: <strong>@Studio.CurrentDraft.OptionEntries.Count</strong></span>
+                }
+                else
+                {
+                    <span>Total Nodes: <strong>@Studio.CountAllNodes()</strong></span>
+                }
+            </div>
+        </div>
+
+        @if (Studio.RequiresDecryptionUnlock)
+        {
+            <div style="padding:12px 16px; background:rgba(245,158,11,0.14); border-bottom:1px solid #f59e0b; display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;">
+                <div style="display:flex; align-items:center; gap:8px; color:#fcd34d; font-size:0.82rem;">
+                    <span>🔒 <strong>Encrypted Payload Locked (<code>FLOWENC:v1:</code>)</strong> — Enter the AES-256-GCM Secure Key / Passphrase to decrypt and load into the visual designer:</span>
+                </div>
+                <div style="display:flex; align-items:center; gap:8px;">
+                    <input type="password" class="form-control" style="width:240px;"
+                           placeholder="Enter Secure Key / Passphrase..."
+                           @bind="_unlockPassphrase" @bind:event="oninput" />
+                    <button type="button" class="btn btn-sm btn-primary"
+                            disabled="@string.IsNullOrWhiteSpace(_unlockPassphrase)"
+                            @onclick="() => Studio.TryUnlockCurrentArtifactAsync(_unlockPassphrase)">
+                        🔓 Unlock &amp; Decrypt
+                    </button>
+                </div>
+            </div>
+        }
+
+        <div class="canvas-scroll">
+            @if (IsOptionsArtifact)
+            {
+                <!-- Visual Editor for dbo.flow_options_content (<flow_cli_options>) compliant with options.xsd -->
+                <div class="section-container">
+                    <div class="section-header">
+                        <div class="section-title">
+                            <span style="color:#10b981;">●</span> Flow CLI Options <code>&lt;flow_cli_options&gt; / &lt;options&gt;</code> (<code>options.xsd</code>)
+                        </div>
+                        <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
+                            <span class="section-badge">@Studio.CurrentDraft.OptionEntries.Count option elements</span>
+                            <button type="button" class="btn btn-sm btn-primary" disabled="@(!CanAddNode)"
+                                    @onclick='() => Studio.AddOptionEntry("vars", "ENV=DEV")'>
+                                + &lt;vars&gt;
+                            </button>
+                            <button type="button" class="btn btn-sm" disabled="@(!CanAddNode)"
+                                    @onclick='() => Studio.AddOptionEntry("node-output", "true")'>
+                                + &lt;node-output&gt;
+                            </button>
+                            <button type="button" class="btn btn-sm" disabled="@(!CanAddNode)"
+                                    @onclick='() => Studio.AddOptionEntry("format", "json")'>
+                                + &lt;format&gt;
+                            </button>
+                            <button type="button" class="btn btn-sm" disabled="@(!CanAddNode)"
+                                    @onclick='() => Studio.AddOptionEntry("debug", "true")'>
+                                + &lt;debug&gt;
+                            </button>
+                        </div>
+                    </div>
+                    <div class="node-list" style="display:flex; flex-direction:column; gap:8px;">
+                        @if (Studio.CurrentDraft.OptionEntries.Count == 0)
+                        {
+                            <div class="empty-placeholder">
+                                No CLI options defined in this profile. Click a button above to add <code>options.xsd</code> elements (e.g., <code>&lt;vars&gt;</code>, <code>&lt;node-output&gt;</code>, <code>&lt;format&gt;</code>, <code>&lt;debug&gt;</code>).
+                            </div>
+                        }
+                        else
+                        {
+                            @foreach (var opt in Studio.CurrentDraft.OptionEntries)
+                            {
+                                var normTag = XmlGeneratorService.NormalizeOptionTagName(opt.Flag);
+                                var meta = XmlGeneratorService.OptionsXsdCatalog.FirstOrDefault(x =>
+                                    string.Equals(x.Tag, normTag, StringComparison.OrdinalIgnoreCase));
+                                var isBool = XmlGeneratorService.BooleanOptionElements.Contains(normTag);
+                                var isFormat = string.Equals(normTag, "format", StringComparison.OrdinalIgnoreCase);
+
+                                <div class="node-card" style="display:grid; grid-template-columns:220px 1fr auto; gap:10px; align-items:center; padding:10px 14px;">
+                                    <div>
+                                        <label class="form-label" style="margin-bottom:3px; font-size:0.72rem;">Option Element (<code>options.xsd</code>)</label>
+                                        <select class="form-control" value="@normTag"
+                                                @onchange="e => Studio.UpdateOptionEntry(opt.Id, e.Value?.ToString(), null)">
+                                            @foreach (var optMeta in XmlGeneratorService.OptionsXsdCatalog)
+                                            {
+                                                <option value="@optMeta.Tag">&lt;@optMeta.Tag&gt; (@optMeta.Type)</option>
+                                            }
+                                            @if (!XmlGeneratorService.OptionsXsdCatalog.Any(x => string.Equals(x.Tag, normTag, StringComparison.OrdinalIgnoreCase)) && !string.IsNullOrEmpty(normTag))
+                                            {
+                                                <option value="@normTag">&lt;@normTag&gt;</option>
+                                            }
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label class="form-label" style="margin-bottom:3px; font-size:0.72rem;">
+                                            Option Value @(meta.Tag is not null ? $"— {meta.Description}" : "")
+                                        </label>
+                                        @if (isBool)
+                                        {
+                                            <select class="form-control" value="@(string.Equals(opt.Value, "false", StringComparison.OrdinalIgnoreCase) ? "false" : "true")"
+                                                    @onchange="e => Studio.UpdateOptionEntry(opt.Id, null, e.Value?.ToString())">
+                                                <option value="true">true</option>
+                                                <option value="false">false</option>
+                                            </select>
+                                        }
+                                        else if (isFormat)
+                                        {
+                                            <select class="form-control" value="@(string.IsNullOrWhiteSpace(opt.Value) ? "csv" : opt.Value.Trim().ToLowerInvariant())"
+                                                    @onchange="e => Studio.UpdateOptionEntry(opt.Id, null, e.Value?.ToString())">
+                                                <option value="csv">csv (Comma-separated values)</option>
+                                                <option value="text">text (Plain text output)</option>
+                                                <option value="json">json (Compact JSON output)</option>
+                                                <option value="jsonpretty">jsonpretty (Indented JSON output)</option>
+                                                <option value="markdown">markdown (Markdown table output)</option>
+                                                <option value="summary">summary (Condensed summary output)</option>
+                                                <option value="stream">stream (Detailed stream state output)</option>
+                                            </select>
+                                        }
+                                        else
+                                        {
+                                            <input class="form-control" value="@opt.Value"
+                                                   placeholder="@(meta.DefaultValue is { Length: > 0 } def ? $"e.g. {def}" : "Enter value...")"
+                                                   @oninput="e => Studio.UpdateOptionEntry(opt.Id, null, e.Value?.ToString())" />
+                                        }
+                                    </div>
+                                    <div style="padding-top:16px;">
+                                        <button type="button" class="btn btn-sm btn-danger"
+                                                disabled="@(!CanModifyCanvas)"
+                                                @onclick="() => Studio.RemoveOptionEntry(opt.Id)"
+                                                title="Remove option element">
+                                            🗑
+                                        </button>
+                                    </div>
+                                </div>
+                            }
+                        }
+                    </div>
+                </div>
+            }
+            else
+            {
+                <!-- Section 1: Variables -->
+                <div class="section-container">
+                    <div class="section-header">
+                        <div class="section-title">
+                            <span style="color:#a855f7;">●</span> 1. Global Variables <code>&lt;variables&gt;</code>
+                        </div>
+                        <div style="display:flex; align-items:center; gap:6px;">
+                            <span class="section-badge">@Studio.CurrentDraft.VariableNodes.Count vars</span>
+                            <button type="button" class="btn btn-sm" disabled="@(!CanAddNode)" @onclick='() => Studio.OpenAddNodeModal("variable")'>
+                                + Add &lt;variable&gt;
+                            </button>
+                        </div>
+                    </div>
+                    <div class="node-list">
+                        @if (Studio.CurrentDraft.VariableNodes.Count == 0)
+                        {
+                            <div class="empty-placeholder">No global variables defined. Click "+ Add &lt;variable&gt;" to define runtime variables.</div>
+                        }
+                        else
+                        {
+                            @foreach (var node in Studio.CurrentDraft.VariableNodes.OrderBy(n => n.SequenceOrder))
+                            {
+                                <NodeCard Node="node" />
+                            }
+                        }
+                    </div>
+                </div>
+
+                <!-- Section 2: Databases -->
+                <div class="section-container">
+                    <div class="section-header">
+                        <div class="section-title">
+                            <span style="color:#eab308;">●</span> 2. Database Connections <code>&lt;databases&gt;</code>
+                        </div>
+                        <div style="display:flex; align-items:center; gap:6px;">
+                            <span class="section-badge">@Studio.CurrentDraft.DatabaseNodes.Count connections</span>
+                            <button type="button" class="btn btn-sm" disabled="@(!CanAddNode)" @onclick='() => Studio.OpenAddNodeModal("database")'>
+                                + Add &lt;database&gt;
+                            </button>
+                        </div>
+                    </div>
+                    <div class="node-list">
+                        @if (Studio.CurrentDraft.DatabaseNodes.Count == 0)
+                        {
+                            <div class="empty-placeholder">No database connections defined in XML.</div>
+                        }
+                        else
+                        {
+                            @foreach (var node in Studio.CurrentDraft.DatabaseNodes.OrderBy(n => n.SequenceOrder))
+                            {
+                                <NodeCard Node="node" />
+                            }
+                        }
+                    </div>
+                </div>
+
+                <!-- Section 3: Preflight Health Checks -->
+                <div class="section-container">
+                    <div class="section-header">
+                        <div class="section-title">
+                            <span style="color:#10b981;">●</span> 3. Preflight Checks &amp; Setup <code>&lt;preflight&gt;</code>
+                        </div>
+                        <div style="display:flex; align-items:center; gap:6px;">
+                            <span class="section-badge">@Studio.CurrentDraft.PreflightNodes.Count checks</span>
+                            <button type="button" class="btn btn-sm" disabled="@(!CanAddNode)" @onclick='() => Studio.OpenAddNodeModal("assert", null, "preflight")'>
+                                + Add &lt;assert&gt;
+                            </button>
+                            <button type="button" class="btn btn-sm" disabled="@(!CanAddNode)" @onclick='() => Studio.OpenAddNodeModal("sql", null, "preflight")'>
+                                + Add &lt;sql&gt;
+                            </button>
+                            <button type="button" class="btn btn-sm" disabled="@(!CanAddNode)" @onclick='() => Studio.OpenAddNodeModal("script", null, "preflight")'>
+                                + Add &lt;script&gt;
+                            </button>
+                        </div>
+                    </div>
+                    <div class="node-list">
+                        @if (Studio.CurrentDraft.PreflightNodes.Count == 0)
+                        {
+                            <div class="empty-placeholder">No preflight checks defined. Add &lt;assert&gt;, &lt;sql&gt;, or &lt;script&gt; steps.</div>
+                        }
+                        else
+                        {
+                            @foreach (var node in Studio.CurrentDraft.PreflightNodes.OrderBy(n => n.SequenceOrder))
+                            {
+                                <NodeCard Node="node" />
+                            }
+                        }
+                    </div>
+                </div>
+
+                @if (!IsConfigArtifact)
+                {
+                    <!-- Section 4: Execution Flow -->
+                    <div class="section-container">
+                        <div class="section-header">
+                            <div class="section-title">
+                                <span style="color:#3b82f6;">●</span> 4. Execution Flow Steps <code>&lt;flow&gt;</code>
+                            </div>
+                            <div style="display:flex; align-items:center; gap:6px;">
+                                <span class="section-badge">@Studio.CurrentDraft.FlowNodes.Count root steps</span>
+                                <button type="button" class="btn btn-sm" disabled="@(!CanAddNode)" @onclick='() => Studio.OpenAddNodeModal("sql", null, "flow")'>
+                                    + Add &lt;sql&gt;
+                                </button>
+                                <button type="button" class="btn btn-sm" disabled="@(!CanAddNode)" @onclick='() => Studio.OpenAddNodeModal("script", null, "flow")'>
+                                    + Add &lt;script&gt;
+                                </button>
+                                <button type="button" class="btn btn-sm" disabled="@(!CanAddNode)" @onclick='() => Studio.OpenAddNodeModal("if", null, "flow")'>
+                                    + Add &lt;if&gt;
+                                </button>
+                            </div>
+                        </div>
+                        <div class="node-list">
+                            @if (Studio.CurrentDraft.FlowNodes.Count == 0)
+                            {
+                                <div class="empty-placeholder">
+                                    No execution flow steps defined. Add components from the left palette!
+                                </div>
+                            }
+                            else
+                            {
+                                @foreach (var node in Studio.CurrentDraft.FlowNodes.OrderBy(n => n.SequenceOrder))
+                                {
+                                    <NodeCard Node="node" />
+                                }
+                            }
+                        </div>
+                    </div>
+                }
+            }
+        </div>
+    </div>
+
+    <!-- RIGHT PANE: Live XML Preview & Two-Way Importer -->
+    <div class="panel panel-right">
+        <div class="panel-header">
+            <span>📄 @Studio.CurrentDraft.ArtifactType.ToUpperInvariant() XML (@Studio.CurrentDraft.Name)</span>
+            <div style="display:flex; gap:5px;">
+                <button type="button" class="btn btn-sm btn-primary"
+                        disabled="@(!CanModifyCanvas)"
+                        @onclick="ApplyEditorXmlToCanvasAsync"
+                        title="Parse edited XML back into the visual designer">
+                    ⇄ Apply XML to Canvas
+                </button>
+                <button type="button" class="btn btn-sm"
+                        disabled="@(!CanModifyCanvas)"
+                        @onclick="() => Studio.OpenUploadModal(Studio.CurrentDraft.ArtifactType)"
+                        title="Select local XML file and upload to database">
+                    📂 Upload
+                </button>
+                <button type="button" class="btn btn-sm" @onclick="CopyXmlAsync" title="Copy XML to Clipboard">
+                    📋 Copy
+                </button>
+                <button type="button" class="btn btn-sm" @onclick="DownloadXmlAsync" title="Download XML file">
+                    ⬇ .xml
+                </button>
+            </div>
+        </div>
+        <div style="flex:1; display:flex; flex-direction:column; overflow:hidden;">
+            <textarea class="xml-editor"
+                      value="@Studio.GeneratedXml"
+                      @oninput="e => Studio.GeneratedXml = e.Value?.ToString() ?? string.Empty"
+                      spellcheck="false"></textarea>
+        </div>
+    </div>
+</div>
+
+@code {
+    private string _paletteFilter = string.Empty;
+    private string _unlockPassphrase = string.Empty;
+    private string? _lastSelectedPipelineId;
+    private string? _lastSelectedConfigId;
+    private string? _lastSelectedOptionsId;
+
+    private bool IsPipelineArtifact => string.Equals(Studio.CurrentDraft.ArtifactType, "pipeline", StringComparison.OrdinalIgnoreCase);
+    private bool IsConfigArtifact => string.Equals(Studio.CurrentDraft.ArtifactType, "config", StringComparison.OrdinalIgnoreCase);
+    private bool IsOptionsArtifact => string.Equals(Studio.CurrentDraft.ArtifactType, "options", StringComparison.OrdinalIgnoreCase);
+
+    private string EffectivePipelineId =>
+        IsPipelineArtifact && Studio.CurrentDraft.ApiArtifactId.HasValue
+            ? Studio.CurrentDraft.ApiArtifactId.Value.ToString()
+            : (_lastSelectedPipelineId ?? (Studio.Pipelines.Count > 0 ? Studio.Pipelines[0].Id.ToString() : ""));
+
+    private string EffectiveConfigId =>
+        IsConfigArtifact && Studio.CurrentDraft.ApiArtifactId.HasValue
+            ? Studio.CurrentDraft.ApiArtifactId.Value.ToString()
+            : (_lastSelectedConfigId ?? (Studio.Configs.Count > 0 ? Studio.Configs[0].Id.ToString() : ""));
+
+    private string EffectiveOptionsId =>
+        IsOptionsArtifact && Studio.CurrentDraft.ApiArtifactId.HasValue
+            ? Studio.CurrentDraft.ApiArtifactId.Value.ToString()
+            : (_lastSelectedOptionsId ?? (Studio.OptionsList.Count > 0 ? Studio.OptionsList[0].Id.ToString() : ""));
+
+    private bool CanAddNode => Auth.CurrentPermissions.CanCreate || Auth.CurrentPermissions.CanUpdate;
+    private bool CanModifyCanvas => Auth.CurrentPermissions.CanUpdate || Auth.CurrentPermissions.CanCreate;
+    private bool CanSaveArtifact =>
+        (Auth.CurrentPermissions.CanCreate || Auth.CurrentPermissions.CanUpdate) &&
+        !string.IsNullOrWhiteSpace(Studio.CurrentDraft.Name);
+
+    protected override void OnInitialized()
+    {
+        Studio.OnChange += HandleStudioStateChanged;
+    }
+
+    private void HandleStudioStateChanged()
+    {
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    public void Dispose()
+    {
+        Studio.OnChange -= HandleStudioStateChanged;
+    }
+
+    private bool MatchesPaletteFilter(ComponentMeta c)
+    {
+        if (string.IsNullOrWhiteSpace(_paletteFilter)) return true;
+        return c.Tag.Contains(_paletteFilter, StringComparison.OrdinalIgnoreCase)
+            || c.Name.Contains(_paletteFilter, StringComparison.OrdinalIgnoreCase)
+            || c.Description.Contains(_paletteFilter, StringComparison.OrdinalIgnoreCase)
+            || c.Category.Contains(_paletteFilter, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private void OnNameChanged(ChangeEventArgs e)
+    {
+        Studio.CurrentDraft.Name = e.Value?.ToString() ?? "default_pipeline";
+        Studio.CurrentDraft.IsDirty = true;
+        if (!IsOptionsArtifact)
+        {
+            Studio.RegenerateXmlFromDraft();
+        }
+    }
+
+    private void OnDescriptionChanged(ChangeEventArgs e)
+    {
+        Studio.CurrentDraft.Description = e.Value?.ToString() ?? string.Empty;
+        Studio.CurrentDraft.IsDirty = true;
+        if (!IsOptionsArtifact)
+        {
+            Studio.RegenerateXmlFromDraft();
+        }
+    }
+
+    private async Task OnSelectPipelineFromDbAsync(ChangeEventArgs e)
+    {
+        var raw = e.Value?.ToString();
+        _lastSelectedPipelineId = raw;
+        if (string.IsNullOrWhiteSpace(raw)) return;
+        if (int.TryParse(raw, out var id))
+        {
+            await Studio.LoadDatabaseArtifactByIdAsync("pipeline", id);
+        }
+    }
+
+    private async Task EditSelectedPipelineFromDbAsync()
+    {
+        if (int.TryParse(EffectivePipelineId, out var id))
+        {
+            await Studio.LoadDatabaseArtifactByIdAsync("pipeline", id);
+        }
+    }
+
+    private async Task OnSelectConfigFromDbAsync(ChangeEventArgs e)
+    {
+        var raw = e.Value?.ToString();
+        _lastSelectedConfigId = raw;
+        if (string.IsNullOrWhiteSpace(raw)) return;
+        if (int.TryParse(raw, out var id))
+        {
+            await Studio.LoadDatabaseArtifactByIdAsync("config", id);
+        }
+    }
+
+    private async Task EditSelectedConfigFromDbAsync()
+    {
+        if (int.TryParse(EffectiveConfigId, out var id))
+        {
+            await Studio.LoadDatabaseArtifactByIdAsync("config", id);
+        }
+    }
+
+    private async Task OnSelectOptionsFromDbAsync(ChangeEventArgs e)
+    {
+        var raw = e.Value?.ToString();
+        _lastSelectedOptionsId = raw;
+        if (string.IsNullOrWhiteSpace(raw)) return;
+        if (int.TryParse(raw, out var id))
+        {
+            await Studio.LoadDatabaseArtifactByIdAsync("options", id);
+        }
+    }
+
+    private async Task EditSelectedOptionsFromDbAsync()
+    {
+        if (int.TryParse(EffectiveOptionsId, out var id))
+        {
+            await Studio.LoadDatabaseArtifactByIdAsync("options", id);
+        }
+    }
+
+    private async Task DeleteSelectedArtifactAsync()
+    {
+        if (!Studio.CurrentDraft.ApiArtifactId.HasValue) return;
+        var id = Studio.CurrentDraft.ApiArtifactId.Value;
+        var type = Studio.CurrentDraft.ArtifactType;
+        var list = type switch
+        {
+            "config" => Studio.Configs,
+            "options" => Studio.OptionsList,
+            _ => Studio.Pipelines
+        };
+        var found = list.FirstOrDefault(a => a.Id == id) ?? new ArtifactRecord
+        {
+            Id = id,
+            Type = type,
+            Name = Studio.CurrentDraft.Name
+        };
+        await Studio.DeleteArtifactAsync(type, found);
+    }
+
+    private async Task ClearCurrentArtifactNodesAsync()
+    {
+        if (IsOptionsArtifact)
+        {
+            Studio.CurrentDraft.OptionEntries.Clear();
+            Studio.CurrentDraft.IsDirty = true;
+            Studio.RegenerateXmlFromDraft();
+            Studio.NotifyStateChanged();
+        }
+        else
+        {
+            await Studio.ClearCurrentSectionOrAllAsync(null);
+        }
+    }
+
+    private async Task ValidateCurrentPipelineAsync()
+    {
+        try
+        {
+            var (valid, msg) = await ApiClient.ValidatePipelineXmlAsync(Studio.GeneratedXml);
+            if (valid)
+            {
+                Studio.ShowBanner($"XML Validation Passed: {msg}", "success");
+                await Studio.LogEventAsync("DESIGNER", "VALIDATE_XML", Studio.CurrentDraft.ArtifactType, Studio.CurrentDraft.Name, "SUCCESS", 0, null);
+            }
+            else
+            {
+                Studio.ShowBanner($"XML Validation Failed: {msg}", "error");
+                await Studio.LogEventAsync("DESIGNER", "VALIDATE_XML", Studio.CurrentDraft.ArtifactType, Studio.CurrentDraft.Name, "INVALID", 0, msg);
+            }
+        }
+        catch (Exception ex)
+        {
+            Studio.ShowBanner($"Validation request error: {ex.Message}", "error");
+        }
+    }
+
+    private async Task ApplyEditorXmlToCanvasAsync()
+    {
+        await Studio.ApplyXmlToCanvasAsync(Studio.GeneratedXml);
+    }
+
+    private async Task CopyXmlAsync()
+    {
+        await JS.InvokeVoidAsync("flowStudio.copyToClipboard", Studio.GeneratedXml);
+        Studio.ShowBanner($"Copied {Studio.CurrentDraft.ArtifactType} XML to clipboard.", "info");
+        await Studio.LogEventAsync("DESIGNER", "COPY_XML", Studio.CurrentDraft.ArtifactType, Studio.CurrentDraft.Name, "SUCCESS", 0, null);
+    }
+
+    private async Task DownloadXmlAsync()
+    {
+        var filename = $"{Studio.CurrentDraft.Name}.xml";
+        await JS.InvokeVoidAsync("flowStudio.downloadXmlFile", filename, Studio.GeneratedXml);
+        await Studio.LogEventAsync("DESIGNER", "DOWNLOAD_XML", Studio.CurrentDraft.ArtifactType, filename, "SUCCESS", 0, null);
+    }
+}

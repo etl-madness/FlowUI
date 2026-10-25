@@ -1,0 +1,186 @@
+@inject IAuthenticationService AuthService
+@inject StudioStateService Studio
+
+<div class="login-backdrop">
+    <div class="login-card">
+        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px;">
+            <div class="brand">
+                <img src="favicon.png" alt="Flow Builder" class="brand-icon" />
+                <span>Flow Builder</span> <span class="accent-badge">Studio .NET 10</span>
+            </div>
+            <span class="status-pill">
+                <span class="status-dot @(Studio.ApiOnline ? "online" : "offline")"></span>
+                API: @AppConfig.ApiBaseUrl
+            </span>
+        </div>
+
+        <p style="color:var(--text-muted); font-size:0.84rem; margin-bottom:18px; line-height:1.45;">
+            Sign in to access the Visual Pipeline Designer, API Artifact Manager, Runner, and Telemetry Logs.
+            All artifacts and executions are managed through <code>go-flowAPI</code>.
+        </p>
+
+        <div class="form-group">
+            <label class="form-label">Authentication Provider (Pluggable Strategy)</label>
+            <select class="form-control" value="@_selectedProvider" @onchange="OnProviderChanged">
+                @foreach (var p in AuthService.GetAvailableProviders())
+                {
+                    <option value="@p.ProviderName">@p.DisplayName (@p.ProviderName)</option>
+                }
+            </select>
+            <div class="form-help">
+                Switch authentication backends at runtime via <code>IAuthenticationService</code> / <code>IUiAuthProvider</code>.
+            </div>
+        </div>
+
+        @if (_RequiresCredentials)
+        {
+            <div class="form-group">
+                <label class="form-label">@(_IsWindowsProvider ? "Windows Username (DOMAIN\\user)" : "Username")</label>
+                <input class="form-control" @bind="_username" @bind:event="oninput" placeholder="@(_IsWindowsProvider ? "RSYSLAB\\U00001" : "admin")" />
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">@(_IsWindowsProvider ? "Windows Password" : "Password")</label>
+                <input type="password" class="form-control" @bind="_password" @bind:event="oninput" @onkeydown="HandleKeyDown" placeholder="••••••••••••" />
+            </div>
+        }
+        else
+        {
+            <div class="form-group" style="padding:10px; background:rgba(59,130,246,0.12); border:1px solid var(--accent); border-radius:6px;">
+                <div style="font-weight:600; color:#93c5fd; margin-bottom:4px;">Windows Integrated Identity</div>
+                <div style="font-size:0.8rem; color:var(--text-muted);">
+                    Uses your active Windows OS identity (and <code>DOMAIN\group</code> memberships) and resolves permissions via <code>go-flowAPI</code>.
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Windows Account (optional — leave blank to auto-detect)</label>
+                <input class="form-control" @bind="_windowsUsername" @bind:event="oninput" @onkeydown="HandleKeyDown" placeholder="Auto-detect (e.g. RSYSLAB\U00001)" />
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Windows Password (optional — leave blank for passwordless Integrated Auth)</label>
+                <input type="password" class="form-control" @bind="_windowsPassword" @bind:event="oninput" @onkeydown="HandleKeyDown" placeholder="Optional password" />
+            </div>
+        }
+
+        @if (!string.IsNullOrEmpty(_errorMessage))
+        {
+            <div style="padding:9px 12px; background:rgba(239,68,68,0.2); border:1px solid var(--danger); color:#fca5a5; border-radius:6px; margin-bottom:14px; font-size:0.82rem;">
+                ⚠️ @_errorMessage
+            </div>
+        }
+
+        <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; margin-top:18px;">
+            @if (_RequiresCredentials && !string.IsNullOrWhiteSpace(AppConfig.AdminUser) && !string.IsNullOrWhiteSpace(AppConfig.AdminPassword))
+            {
+                <button type="button" class="btn btn-sm" @onclick="FillDefaultAdmin" title="Pre-fill default configured API credentials">
+                    🔑 Fill Default Admin
+                </button>
+            }
+            else
+            {
+                <span></span>
+            }
+
+            <button type="button" class="btn btn-primary" style="padding:8px 18px;" disabled="@_isBusy" @onclick="PerformLoginAsync">
+                @(_isBusy ? "Authenticating..." : "Sign In to Studio →")
+            </button>
+        </div>
+
+        <div style="margin-top:18px; padding-top:12px; border-top:1px solid var(--border); display:flex; justify-content:space-between; font-size:0.74rem; color:var(--text-muted);">
+            <span>API Target: <code>@AppConfig.ApiBaseUrl</code></span>
+            <span>Auth Mode: <code>@_selectedProvider</code></span>
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter] public EventCallback OnLoginSuccess { get; set; }
+
+    private string _selectedProvider = "ApiBasic";
+    private string _username = "";
+    private string _password = "";
+    private string _windowsUsername = "";
+    private string _windowsPassword = "";
+    private string? _errorMessage;
+    private bool _isBusy;
+
+    private bool _IsWindowsProvider =>
+        _selectedProvider.StartsWith("Windows", StringComparison.OrdinalIgnoreCase);
+
+    private bool _RequiresCredentials =>
+        AuthService.GetAvailableProviders()
+            .FirstOrDefault(p => string.Equals(p.ProviderName, _selectedProvider, StringComparison.OrdinalIgnoreCase))
+            ?.RequiresPasswordPrompt ?? true;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _selectedProvider = AuthService.ActiveProviderName;
+        var detected = WindowsIntegratedUiAuthProvider.GetDefaultDetectedIdentity();
+        _windowsUsername = detected;
+        if (_IsWindowsProvider && string.IsNullOrWhiteSpace(_username))
+        {
+            _username = detected;
+        }
+        await Studio.CheckApiHealthOnlyAsync();
+    }
+
+    private void OnProviderChanged(ChangeEventArgs e)
+    {
+        var val = e.Value?.ToString();
+        if (!string.IsNullOrWhiteSpace(val))
+        {
+            _selectedProvider = val;
+            AuthService.SetActiveProvider(_selectedProvider);
+            if (_IsWindowsProvider && string.IsNullOrWhiteSpace(_username))
+            {
+                _username = WindowsIntegratedUiAuthProvider.GetDefaultDetectedIdentity();
+            }
+            _errorMessage = null;
+        }
+    }
+
+    private void FillDefaultAdmin()
+    {
+        _username = AppConfig.AdminUser;
+        _password = AppConfig.AdminPassword;
+        _errorMessage = null;
+    }
+
+    private async Task HandleKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+        {
+            await PerformLoginAsync();
+        }
+    }
+
+    private async Task PerformLoginAsync()
+    {
+        _isBusy = true;
+        _errorMessage = null;
+        try
+        {
+            var user = _RequiresCredentials ? _username : _windowsUsername;
+            var pass = _RequiresCredentials ? _password : _windowsPassword;
+            var result = await AuthService.LoginAsync(user, pass, _selectedProvider);
+            if (result.Succeeded)
+            {
+                await OnLoginSuccess.InvokeAsync();
+            }
+            else
+            {
+                _errorMessage = result.ErrorMessage ?? "Authentication failed.";
+            }
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = ex.Message;
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+}

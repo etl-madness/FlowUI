@@ -1,0 +1,207 @@
+@page "/"
+@implements IDisposable
+@inject StudioStateService Studio
+@inject IAuthenticationService Auth
+@inject IJSRuntime JS
+
+<PageTitle>Flow Builder — @(string.IsNullOrWhiteSpace(Studio.CurrentDraft.Name) ? "New Pipeline" : Studio.CurrentDraft.Name)</PageTitle>
+
+<div class="studio-shell" data-theme="@Studio.ActiveTheme">
+    @if (!Auth.IsAuthenticated)
+    {
+        <LoginPanel OnLoginSuccess="HandleAuthenticatedAsync" />
+    }
+    else
+    {
+        <!-- Clean Single-Row Studio Header Bar -->
+        <header class="studio-header">
+            <div class="brand">
+                <img src="favicon.png" alt="Flow Builder" class="brand-icon" />
+                <span>Flow Builder</span>
+                <span class="accent-badge">Studio</span>
+            </div>
+
+            <!-- Main Navigation Tabs -->
+            <nav class="nav-tabs">
+                <button type="button" class="nav-tab @(Studio.ActiveTab == "pipeline" ? "active" : "")"
+                        @onclick='() => Studio.SetActiveTabAsync("pipeline")'>
+                    <span>Pipeline Designer</span>
+                </button>
+                <button type="button" class="nav-tab @(Studio.ActiveTab == "config" ? "active" : "")"
+                        @onclick='() => Studio.SetActiveTabAsync("config")'>
+                    <span>Config</span>
+                </button>
+                <button type="button" class="nav-tab @(Studio.ActiveTab == "options" ? "active" : "")"
+                        @onclick='() => Studio.SetActiveTabAsync("options")'>
+                    <span>Options</span>
+                </button>
+                <button type="button" class="nav-tab @(Studio.ActiveTab == "runner" ? "active" : "")"
+                        @onclick='() => Studio.SetActiveTabAsync("runner")'>
+                    <span>Runner</span>
+                </button>
+                <button type="button" class="nav-tab @(Studio.ActiveTab == "logs" ? "active" : "")"
+                        @onclick='() => Studio.SetActiveTabAsync("logs")'>
+                    <span>Logs</span>
+                </button>
+                <button type="button" class="nav-tab @(Studio.ActiveTab == "settings" ? "active" : "")"
+                        @onclick='() => Studio.SetActiveTabAsync("settings")'>
+                    <span>Settings</span>
+                </button>
+            </nav>
+
+            <!-- Compact Right Controls: Combined Health Pill, Theme Select, User & Sign Out -->
+            <div class="header-right">
+                <span class="status-pill"
+                      title="go-flowAPI: @Studio.ApiStatusText (@AppConfig.ApiBaseUrl)">
+                    <span class="status-dot @(Studio.ApiOnline ? "online" : "offline")"></span>
+                    <span>@Studio.ApiStatusText</span>
+                </span>
+
+                <select class="form-control header-theme-select" value="@Studio.ActiveTheme" @onchange="OnThemeChanged" title="Color Theme">
+                    @foreach (var t in StudioStateService.Themes)
+                    {
+                        <option value="@t.Id">@t.Label</option>
+                    }
+                </select>
+
+                <div class="status-pill" title="Provider: @Auth.ActiveProviderName | Permissions: @Auth.CurrentPermissions.ToSummaryBadge()">
+                    <span>👤 @Auth.CurrentUser?.Username</span>
+                    <span class="perm-badge">@(Auth.CurrentPermissions.IsAdmin ? "ADMIN" : Auth.CurrentPermissions.ToSummaryBadge())</span>
+                    <button type="button" class="header-logout-btn" title="Sign Out" @onclick="HandleLogoutAsync">
+                        ↪
+                    </button>
+                </div>
+            </div>
+        </header>
+
+        <!-- Toast / Banner Notification Bar -->
+        @if (!string.IsNullOrWhiteSpace(Studio.StatusBannerMessage))
+        {
+            var bannerClass = Studio.StatusBannerType?.ToLowerInvariant() switch
+            {
+                "error" => "error",
+                "success" => "success",
+                "warning" => "warning",
+                _ => "info"
+            };
+            <div class="toast-banner @bannerClass">
+                <span>@(bannerClass == "error" ? "⚠️" : "ℹ️") @Studio.StatusBannerMessage</span>
+                <button type="button" class="btn btn-sm" @onclick="Studio.ClearBanner">✕</button>
+            </div>
+        }
+
+        <!-- Active Tab Viewport -->
+        @switch (Studio.ActiveTab)
+        {
+            case "pipeline":
+                <PipelineDesignerTab />
+                break;
+            case "config":
+                <ConfigTab />
+                break;
+            case "options":
+                <OptionsTab />
+                break;
+            case "runner":
+                <RunnerTab />
+                break;
+            case "logs":
+                <LogsTab />
+                break;
+            case "settings":
+                <SettingsTab />
+                break;
+            default:
+                <PipelineDesignerTab />
+                break;
+        }
+
+        <!-- Shared Studio Modals -->
+        <NodeEditModal />
+        <ComponentPickerModal />
+        <DocGuideModal />
+        <EventDetailModal />
+        <LocalFileUploadModal />
+        <CryptoSignVerifyModal />
+    }
+</div>
+
+@code {
+    protected override async Task OnInitializedAsync()
+    {
+        Studio.OnChange += HandleStateChanged;
+        Auth.OnAuthStateChanged += HandleStateChanged;
+
+        if (!Auth.IsAuthenticated)
+        {
+            var auto = await Auth.TryAutoLoginAsync();
+            if (auto.Succeeded)
+            {
+                await Studio.InitializeStudioAsync();
+            }
+        }
+        else
+        {
+            await Studio.InitializeStudioAsync();
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            try
+            {
+                var savedTheme = await JS.InvokeAsync<string>("flowStudio.getSavedTheme");
+                if (!string.IsNullOrWhiteSpace(savedTheme) && !string.Equals(savedTheme, Studio.ActiveTheme, StringComparison.OrdinalIgnoreCase))
+                {
+                    await Studio.SetThemeAsync(savedTheme, logEvent: false);
+                }
+            }
+            catch
+            {
+                // Ignore if circuit disconnected during prerender
+            }
+        }
+    }
+
+    private async Task HandleAuthenticatedAsync()
+    {
+        await Studio.InitializeStudioAsync();
+        StateHasChanged();
+    }
+
+    private async Task HandleLogoutAsync()
+    {
+        await Auth.LogoutAsync();
+        StateHasChanged();
+    }
+
+    private async Task OnThemeChanged(ChangeEventArgs e)
+    {
+        var theme = e.Value?.ToString();
+        if (!string.IsNullOrWhiteSpace(theme))
+        {
+            await Studio.SetThemeAsync(theme);
+            try
+            {
+                await JS.InvokeVoidAsync("flowStudio.saveTheme", theme);
+            }
+            catch
+            {
+                // Ignore JS interop failures
+            }
+        }
+    }
+
+    private void HandleStateChanged()
+    {
+        InvokeAsync(StateHasChanged);
+    }
+
+    public void Dispose()
+    {
+        Studio.OnChange -= HandleStateChanged;
+        Auth.OnAuthStateChanged -= HandleStateChanged;
+    }
+}
