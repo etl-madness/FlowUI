@@ -380,7 +380,7 @@ secrets.json
 .gemini/
 .antigravity/
 
-/FlowUIv2/Properties/launchSettings.json
+/FlowUI/Properties/launchSettings.json
 private-docker-compose.override.yml
 private-docker-compose.yml
 .private/

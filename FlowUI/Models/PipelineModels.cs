@@ -1,6 +1,6 @@
 using System.Text.Json.Serialization;
 
-namespace FlowUIv2.Models;
+namespace FlowUI.Models;
 
 /// <summary>
 /// Represents a single node in the visual pipeline canvas tree.
@@ -8,11 +8,20 @@ namespace FlowUIv2.Models;
 /// </summary>
 public sealed class PipelineNode
 {
-    public long Id { get; set; }
-    public long? ParentNodeId { get; set; }
+    public long Id
+    {
+        get; set;
+    }
+    public long? ParentNodeId
+    {
+        get; set;
+    }
     public string Section { get; set; } = "flow"; // variables, databases, preflight, flow
     public string NodeType { get; set; } = string.Empty;
-    public int SequenceOrder { get; set; }
+    public int SequenceOrder
+    {
+        get; set;
+    }
     public Dictionary<string, string> Attributes { get; set; } = new(StringComparer.OrdinalIgnoreCase);
     public string ContentText { get; set; } = string.Empty;
     public List<PipelineNode> Children { get; set; } = new();
@@ -64,7 +73,10 @@ public sealed class PipelineNode
 /// </summary>
 public sealed class FlowOptionEntry
 {
-    public long Id { get; set; }
+    public long Id
+    {
+        get; set;
+    }
     public string Flag { get; set; } = "--var";
     public string Value { get; set; } = string.Empty;
 }
@@ -74,7 +86,10 @@ public sealed class FlowOptionEntry
 /// </summary>
 public sealed class PipelineDraft
 {
-    public int? ApiArtifactId { get; set; }
+    public int? ApiArtifactId
+    {
+        get; set;
+    }
     public string ArtifactType { get; set; } = "pipeline"; // "pipeline", "config", or "options"
     public string Name { get; set; } = "default_pipeline";
     public string Description { get; set; } = "Visual pipeline designed in Flow Builder";
@@ -83,13 +98,31 @@ public sealed class PipelineDraft
     public List<PipelineNode> PreflightNodes { get; set; } = new();
     public List<PipelineNode> FlowNodes { get; set; } = new();
     public List<FlowOptionEntry> OptionEntries { get; set; } = new();
-    public bool Encrypted { get; set; }
-    public bool Signed { get; set; }
+    public bool Encrypted
+    {
+        get; set;
+    }
+    public bool Signed
+    {
+        get; set;
+    }
     public string SignatureFormat { get; set; } = string.Empty;
-    public string? SignedEnvelopeContent { get; set; }
-    public string? DetachedSignatureContent { get; set; }
-    public CryptoVerifyResponse? LastVerification { get; set; }
-    public bool IsDirty { get; set; }
+    public string? SignedEnvelopeContent
+    {
+        get; set;
+    }
+    public string? DetachedSignatureContent
+    {
+        get; set;
+    }
+    public CryptoVerifyResponse? LastVerification
+    {
+        get; set;
+    }
+    public bool IsDirty
+    {
+        get; set;
+    }
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 }
 
@@ -108,13 +141,19 @@ public sealed class AttributeMeta
     public string Type { get; set; } = "text"; // text, select, boolean, number, textarea
 
     [JsonPropertyName("required")]
-    public bool Required { get; set; }
+    public bool Required
+    {
+        get; set;
+    }
 
     [JsonPropertyName("default")]
     public string Default { get; set; } = string.Empty;
 
     [JsonPropertyName("options")]
-    public List<string>? Options { get; set; }
+    public List<string>? Options
+    {
+        get; set;
+    }
 
     [JsonPropertyName("placeholder")]
     public string Placeholder { get; set; } = string.Empty;
@@ -147,7 +186,10 @@ public sealed class ComponentMeta
     public string Description { get; set; } = string.Empty;
 
     [JsonPropertyName("has_content")]
-    public bool HasContent { get; set; }
+    public bool HasContent
+    {
+        get; set;
+    }
 
     [JsonPropertyName("content_label")]
     public string ContentLabel { get; set; } = "Content / Script";
@@ -162,7 +204,10 @@ public sealed class ComponentMeta
 public sealed class ArtifactRecord
 {
     [JsonPropertyName("id")]
-    public int Id { get; set; }
+    public int Id
+    {
+        get; set;
+    }
 
     [JsonPropertyName("type")]
     public string Type { get; set; } = "pipeline";
@@ -188,10 +233,16 @@ public sealed class ArtifactRecord
     }
 
     [JsonPropertyName("encrypted")]
-    public bool Encrypted { get; set; }
+    public bool Encrypted
+    {
+        get; set;
+    }
 
     [JsonPropertyName("signed")]
-    public bool Signed { get; set; }
+    public bool Signed
+    {
+        get; set;
+    }
 
     [JsonPropertyName("signature_format")]
     public string SignatureFormat { get; set; } = string.Empty;
@@ -208,7 +259,10 @@ public sealed class ArtifactRecord
 /// </summary>
 public sealed class SavedDatabaseProfile
 {
-    public int Id { get; set; }
+    public int Id
+    {
+        get; set;
+    }
     public string Name { get; set; } = string.Empty;
     public string Driver { get; set; } = "sqlserver";
     public string ConnectionString { get; set; } = string.Empty;

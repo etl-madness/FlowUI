@@ -1,6 +1,6 @@
-using FlowUIv2.Models;
+using FlowUI.Models;
 
-namespace FlowUIv2.Services;
+namespace FlowUI.Services;
 
 /// <summary>
 /// 1:1 port of go-flow/builder/catalog.go.
@@ -8,7 +8,10 @@ namespace FlowUIv2.Services;
 /// </summary>
 public sealed class CatalogService
 {
-    public IReadOnlyList<string> Categories { get; } =
+    public IReadOnlyList<string> Categories
+    {
+        get;
+    } =
     [
         "Pipeline Setup",
         "Control Flow",
@@ -21,7 +24,10 @@ public sealed class CatalogService
         "Integration & Web"
     ];
 
-    public IReadOnlyList<ComponentMeta> Components { get; }
+    public IReadOnlyList<ComponentMeta> Components
+    {
+        get;
+    }
 
     public CatalogService()
     {
@@ -109,15 +115,15 @@ public sealed class CatalogService
         string defaultValue = "",
         string help = "",
         string[]? options = null) => new()
-    {
-        Name = name,
-        Label = label,
-        Type = type,
-        Required = required,
-        Default = defaultValue,
-        Help = help,
-        Options = options?.ToList()
-    };
+        {
+            Name = name,
+            Label = label,
+            Type = type,
+            Required = required,
+            Default = defaultValue,
+            Help = help,
+            Options = options?.ToList()
+        };
 
     private static List<ComponentMeta> BuildCatalog() =>
     [

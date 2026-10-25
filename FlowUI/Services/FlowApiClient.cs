@@ -3,10 +3,10 @@ using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using FlowUIv2.Config;
-using FlowUIv2.Models;
+using FlowUI.Config;
+using FlowUI.Models;
 
-namespace FlowUIv2.Services;
+namespace FlowUI.Services;
 
 /// <summary>
 /// HTTP client for communicating with go-flowAPI using Basic Auth configured via FLOW_API_BASIC_AUTH.
@@ -346,7 +346,7 @@ public sealed class FlowApiClient
         }
 
         // Fallback: if server-side decryption failed (e.g. encrypted artifact without server-side FLOW_SECURE_KEY),
-        // fetch raw ciphertext so FlowUIv2 can decrypt with the user's session key or prompt for passphrase.
+        // fetch raw ciphertext so FlowUI can decrypt with the user's session key or prompt for passphrase.
         var rawUrl = $"/api/v1/artifacts/{Uri.EscapeDataString(artifactType)}/id/{id}?decrypt=false";
         using var rawResp = await _http.GetAsync(rawUrl, ct);
         if (!rawResp.IsSuccessStatusCode) return null;

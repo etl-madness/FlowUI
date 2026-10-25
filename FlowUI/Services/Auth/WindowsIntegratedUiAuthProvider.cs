@@ -1,9 +1,9 @@
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 using System.Security.Principal;
-using FlowUIv2.Models;
+using FlowUI.Models;
 
-namespace FlowUIv2.Services.Auth;
+namespace FlowUI.Services.Auth;
 
 /// <summary>
 /// Windows Integrated authentication provider.

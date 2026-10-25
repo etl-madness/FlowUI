@@ -41,12 +41,12 @@ Copy-Item .env.example .env
 
 ### `go-flowAPI` & `sqlserver` Variables (Used in `docker-compose.api.yml` & `docker-compose.full.yml`)
 
-| Variable | Default in Compose | Description |
-| :--- | :--- | :--- |
-| `FLOW_DB_SERVER` | `host.docker.internal` | SQL Server hostname for `go-flowAPI` DSN in `docker-compose.api.yml`. |
-| `FLOW_DB_NAME` | `EXAMPLE_DB` | Target SQL Server database name for `go-flowAPI`. |
-| `FLOW_DB_PASSWORD` | `YourStrong!Passw0rd` | SQL Server password used by `go-flowAPI` and `sqlserver` container. |
-| `MSSQL_HOST_PORT` | `1433` | Host port mapped to the SQL Server container in `docker-compose.full.yml`. |
+| Variable           | Default in Compose     | Description                                                                |
+| :----------------- | :--------------------- | :------------------------------------------------------------------------- |
+| `FLOW_DB_SERVER`   | `host.docker.internal` | SQL Server hostname for `go-flowAPI` DSN in `docker-compose.api.yml`.      |
+| `FLOW_DB_NAME`     | `EXAMPLE_DB`           | Target SQL Server database name for `go-flowAPI`.                          |
+| `FLOW_DB_PASSWORD` | `YourStrong!Passw0rd`  | SQL Server password used by `go-flowAPI` and `sqlserver` container.        |
+| `MSSQL_HOST_PORT`  | `1433`                 | Host port mapped to the SQL Server container in `docker-compose.full.yml`. |
 
 ---
 
@@ -57,6 +57,7 @@ Copy-Item .env.example .env
 Use [`docker-compose.yml`](./docker-compose.yml) when `go-flowAPI` is already running on your host machine or another server on your network.
 
 #### Example: Connect to `go-flowAPI` on port `8085` on the host machine
+
 ```powershell
 # PowerShell
 $env:FLOW_API_HOST = "http://host.docker.internal"
@@ -77,6 +78,7 @@ Use [`docker-compose.api.yml`](./docker-compose.api.yml) to containerize both th
 > **Note:** Expects the sibling repositories `../go-flowAPI` and `../go-flow` to exist alongside `FlowUI` (`etl-madness/go-flowAPI` and `etl-madness/go-flow`).
 
 #### Example: Run UI + API against external SQL Server `t15p`
+
 ```powershell
 # PowerShell
 $env:FLOW_DB_SERVER = "dbserver.example.com"
@@ -96,18 +98,21 @@ docker compose -f docker-compose.api.yml up -d --build
 ### Scenario 3: Full Stack (`FlowUI` + `go-flowAPI` + SQL Server 2022)
 
 Use [`docker-compose.full.yml`](./docker-compose.full.yml) to spin up a complete, self-contained environment from scratch:
+
 1. **`sqlserver`** starts Microsoft SQL Server 2022 Developer Edition and waits until healthy.
 2. **`sqlserver-init`** executes [`docker/init/sqlserver-init.sql`](./docker/init/sqlserver-init.sql) to create the `EXAMPLE_DB` database and all `flow_*` / `pipeline_*` tables for `go-flowAPI`.
 3. **`go-flow-api`** starts on port `8080` connected to `sqlserver` and bootstraps the admin API user.
 4. **`FlowUI`** starts on port `5185` and connects exclusively to `go-flow-api`.
 
 #### Example: Launch the full stack
+
 ```powershell
 # PowerShell
 docker compose -f docker-compose.full.yml up -d --build
 ```
 
 Check container status and initialization logs:
+
 ```powershell
 docker compose -f docker-compose.full.yml ps
 docker compose -f docker-compose.full.yml logs -f FlowUI go-flow-api
@@ -124,6 +129,7 @@ Access the stack:
 Use [`Dockerfile.windows`](./Dockerfile.windows) and [`docker-compose.windows.yml`](./docker-compose.windows.yml) when running on Windows Server or Docker Desktop in **Windows containers** mode with `FLOW_UI_AUTH_MODE=Windows`.
 
 #### Example: Build and run with Windows Compose
+
 ```powershell
 # Ensure Docker Desktop is switched to Windows containers mode
 docker compose -f docker-compose.windows.yml up -d --build
@@ -136,6 +142,7 @@ docker compose -f docker-compose.windows.yml up -d --build
 If you prefer running `docker` directly without Docker Compose:
 
 ### Build & Run Linux Container
+
 ```powershell
 # 1. Build the image
 docker build -t FlowUI:latest -f Dockerfile .
@@ -151,6 +158,7 @@ docker run -d --name FlowUI `
 ```
 
 ### Build & Run Linux Container with Explicit `FLOW_API_URL`
+
 ```bash
 docker run -d --name FlowUI \
   -p 5185:5185 \
@@ -164,6 +172,7 @@ docker run -d --name FlowUI \
 ## 5. Common Operations
 
 ### View Live Logs
+
 ```powershell
 # Default compose
 docker compose logs -f FlowUI
@@ -173,6 +182,7 @@ docker compose -f docker-compose.full.yml logs -f
 ```
 
 ### Stop & Clean Up Containers
+
 ```powershell
 # Stop containers (preserves SQL Server data volume)
 docker compose -f docker-compose.full.yml down

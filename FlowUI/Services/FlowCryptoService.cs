@@ -1,9 +1,9 @@
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
-using FlowUIv2.Models;
+using FlowUI.Models;
 
-namespace FlowUIv2.Services;
+namespace FlowUI.Services;
 
 /// <summary>
 /// Implements wire-compatible cryptographic primitives and envelopes matching go-flow/pkg/flowcrypto:

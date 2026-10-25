@@ -1,9 +1,9 @@
 using System.Security.Claims;
-using FlowUIv2.Config;
-using FlowUIv2.Models;
+using FlowUI.Config;
+using FlowUI.Models;
 using Microsoft.AspNetCore.Components.Authorization;
 
-namespace FlowUIv2.Services.Auth;
+namespace FlowUI.Services.Auth;
 
 /// <summary>
 /// Default implementation of IAuthenticationService and Blazor AuthenticationStateProvider.

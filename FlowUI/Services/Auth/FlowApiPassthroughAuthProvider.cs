@@ -1,10 +1,10 @@
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
-using FlowUIv2.Config;
-using FlowUIv2.Models;
+using FlowUI.Config;
+using FlowUI.Models;
 
-namespace FlowUIv2.Services.Auth;
+namespace FlowUI.Services.Auth;
 
 /// <summary>
 /// Authenticates UI users directly against go-flowAPI using HTTP Basic Auth (/api/v1/health)

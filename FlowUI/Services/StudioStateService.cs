@@ -1,10 +1,10 @@
 using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
-using FlowUIv2.Models;
-using FlowUIv2.Services.Auth;
+using FlowUI.Models;
+using FlowUI.Services.Auth;
 
-namespace FlowUIv2.Services;
+namespace FlowUI.Services;
 
 /// <summary>
 /// Scoped UI state coordinator for Flow Builder Studio.
@@ -87,11 +87,20 @@ public sealed class StudioStateService
     // =========================================================================
     // Connectivity & Toast Banner
     // =========================================================================
-    public bool ApiOnline { get; private set; }
+    public bool ApiOnline
+    {
+        get; private set;
+    }
     public string ApiStatusText { get; private set; } = "Checking...";
-    public string? StatusBannerMessage { get; private set; }
+    public string? StatusBannerMessage
+    {
+        get; private set;
+    }
     public string StatusBannerType { get; private set; } = "info"; // info, success, warning, error
-    public DateTime? StatusBannerTime { get; private set; }
+    public DateTime? StatusBannerTime
+    {
+        get; private set;
+    }
 
     public void ShowBanner(string message, string type = "info")
     {
@@ -133,9 +142,15 @@ public sealed class StudioStateService
     public string ActiveVerifyCaCertPem { get; set; } = string.Empty;
     public string ActiveVerifyKeyringAsc { get; set; } = string.Empty;
 
-    public bool RequiresDecryptionUnlock { get; private set; }
+    public bool RequiresDecryptionUnlock
+    {
+        get; private set;
+    }
     public string LockedCiphertextPayload { get; private set; } = string.Empty;
-    public bool IsSignVerifyModalOpen { get; private set; }
+    public bool IsSignVerifyModalOpen
+    {
+        get; private set;
+    }
 
     public void SetSessionSecureKey(string? secureKey)
     {
@@ -191,26 +206,65 @@ public sealed class StudioStateService
     // =========================================================================
     // Modal State
     // =========================================================================
-    public long ModalVersion { get; private set; }
-    public bool IsNodeEditModalOpen { get; private set; }
-    public bool IsEditingExistingNode { get; private set; }
-    public PipelineNode? EditingNode { get; private set; }
-    public ComponentMeta? EditingComponentMeta { get; private set; }
-    public long? TargetParentNodeId { get; private set; }
+    public long ModalVersion
+    {
+        get; private set;
+    }
+    public bool IsNodeEditModalOpen
+    {
+        get; private set;
+    }
+    public bool IsEditingExistingNode
+    {
+        get; private set;
+    }
+    public PipelineNode? EditingNode
+    {
+        get; private set;
+    }
+    public ComponentMeta? EditingComponentMeta
+    {
+        get; private set;
+    }
+    public long? TargetParentNodeId
+    {
+        get; private set;
+    }
     public string TargetSection { get; private set; } = "flow";
 
-    public bool IsComponentPickerModalOpen { get; private set; }
-    public long? PickerParentNodeId { get; private set; }
+    public bool IsComponentPickerModalOpen
+    {
+        get; private set;
+    }
+    public long? PickerParentNodeId
+    {
+        get; private set;
+    }
     public string PickerParentLabel { get; private set; } = string.Empty;
 
-    public bool IsDocModalOpen { get; private set; }
+    public bool IsDocModalOpen
+    {
+        get; private set;
+    }
     public string DocModalComponentType { get; private set; } = string.Empty;
 
-    public bool IsEventDetailModalOpen { get; private set; }
-    public PipelineEventRecord? SelectedPipelineEvent { get; private set; }
-    public UiEventRecord? SelectedUiEvent { get; private set; }
+    public bool IsEventDetailModalOpen
+    {
+        get; private set;
+    }
+    public PipelineEventRecord? SelectedPipelineEvent
+    {
+        get; private set;
+    }
+    public UiEventRecord? SelectedUiEvent
+    {
+        get; private set;
+    }
 
-    public bool IsUploadModalOpen { get; private set; }
+    public bool IsUploadModalOpen
+    {
+        get; private set;
+    }
     public string UploadModalDefaultType { get; private set; } = "pipeline";
 
     public void OpenUploadModal(string? defaultType = null)
@@ -713,10 +767,14 @@ public sealed class StudioStateService
             CurrentDraft.IsDirty = true;
 
             sw.Stop();
-            ShowBanner($"Digitally signed '{CurrentDraft.Name}' using {resp.Format.ToUpperInvariant()} ({ (attachUnifiedEnvelope ? "FLOWSIGNED:v1: envelope attached" : "FLOWSIG:v1: detached signature ready") }).", "success");
+            ShowBanner($"Digitally signed '{CurrentDraft.Name}' using {resp.Format.ToUpperInvariant()} ({(attachUnifiedEnvelope ? "FLOWSIGNED:v1: envelope attached" : "FLOWSIG:v1: detached signature ready")}).", "success");
             NotifyStateChanged();
             await LogEventAsync("CRYPTO", "SIGN_ARTIFACT", CurrentDraft.ArtifactType, CurrentDraft.Name, "SUCCESS", sw.ElapsedMilliseconds, null,
-                new { format = resp.Format, attachUnifiedEnvelope });
+                new
+                {
+                    format = resp.Format,
+                    attachUnifiedEnvelope
+                });
         }
         catch (Exception ex)
         {
@@ -1124,7 +1182,11 @@ public sealed class StudioStateService
             NotifyStateChanged();
 
             await LogEventAsync("DESIGNER", "LOAD_ARTIFACT", normType, full.Name, "SUCCESS", sw.ElapsedMilliseconds, null,
-                new { id = full.Id, artifactType = normType });
+                new
+                {
+                    id = full.Id,
+                    artifactType = normType
+                });
         }
         catch (Exception ex)
         {
@@ -1199,7 +1261,13 @@ public sealed class StudioStateService
             NotifyStateChanged();
 
             await LogEventAsync("DESIGNER", "SAVE_ARTIFACT", normType, CurrentDraft.Name, "SUCCESS", sw.ElapsedMilliseconds, null,
-                new { artifactId = CurrentDraft.ApiArtifactId ?? saved.Id, artifactType = normType, encrypted = CurrentDraft.Encrypted, signed = CurrentDraft.Signed });
+                new
+                {
+                    artifactId = CurrentDraft.ApiArtifactId ?? saved.Id,
+                    artifactType = normType,
+                    encrypted = CurrentDraft.Encrypted,
+                    signed = CurrentDraft.Signed
+                });
         }
         catch (Exception ex)
         {
@@ -1265,7 +1333,11 @@ public sealed class StudioStateService
             NotifyStateChanged();
 
             await LogEventAsync("DESIGNER", "UPLOAD_ARTIFACT", normType, saved.Name, "SUCCESS", sw.ElapsedMilliseconds, null,
-                new { artifactId = saved.Id, artifactType = normType });
+                new
+                {
+                    artifactId = saved.Id,
+                    artifactType = normType
+                });
 
             return saved;
         }
@@ -1727,7 +1799,11 @@ public sealed class StudioStateService
         await LogEventAsync("DESIGNER", action, nodeType,
             string.IsNullOrEmpty(nodeDisplay) ? nodeType : nodeDisplay,
             "SUCCESS", 0, null,
-            new { pipeline = CurrentDraft.Name, section = TargetSection });
+            new
+            {
+                pipeline = CurrentDraft.Name,
+                section = TargetSection
+            });
     }
 
     public async Task DeleteNodeAsync(long nodeId)

@@ -1,6 +1,6 @@
-using FlowUIv2.Models;
+using FlowUI.Models;
 
-namespace FlowUIv2.Services.Auth;
+namespace FlowUI.Services.Auth;
 
 /// <summary>
 /// Central UI authentication and RBAC authorization service.
@@ -9,21 +9,57 @@ namespace FlowUIv2.Services.Auth;
 /// </summary>
 public interface IAuthenticationService
 {
-    AppUser? CurrentUser { get; }
-    bool IsAuthenticated { get; }
-    CrudPermissions Permissions { get; }
+    AppUser? CurrentUser
+    {
+        get;
+    }
+    bool IsAuthenticated
+    {
+        get;
+    }
+    CrudPermissions Permissions
+    {
+        get;
+    }
     CrudPermissions CurrentPermissions => Permissions;
-    string ActiveProviderName { get; }
-    IUiAuthProvider ActiveProvider { get; }
-    IReadOnlyList<IUiAuthProvider> AvailableProviders { get; }
+    string ActiveProviderName
+    {
+        get;
+    }
+    IUiAuthProvider ActiveProvider
+    {
+        get;
+    }
+    IReadOnlyList<IUiAuthProvider> AvailableProviders
+    {
+        get;
+    }
     IReadOnlyList<IUiAuthProvider> GetAvailableProviders() => AvailableProviders;
 
-    bool CanCreate { get; }
-    bool CanRead { get; }
-    bool CanUpdate { get; }
-    bool CanDelete { get; }
-    bool CanExecute { get; }
-    bool IsAdmin { get; }
+    bool CanCreate
+    {
+        get;
+    }
+    bool CanRead
+    {
+        get;
+    }
+    bool CanUpdate
+    {
+        get;
+    }
+    bool CanDelete
+    {
+        get;
+    }
+    bool CanExecute
+    {
+        get;
+    }
+    bool IsAdmin
+    {
+        get;
+    }
 
     event Action? OnAuthStateChanged;
 
