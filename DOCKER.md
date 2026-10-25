@@ -1,8 +1,8 @@
-# FlowUIv2 Docker & Docker Compose Guide
+# FlowUI Docker & Docker Compose Guide
 
-This guide explains how to build, configure, and run **FlowUIv2** in Docker using either **Linux containers** (default) or **Windows containers**, across all supported deployment topologies.
+This guide explains how to build, configure, and run **FlowUI** in Docker using either **Linux containers** (default) or **Windows containers**, across all supported deployment topologies.
 
-> **Architecture Note:** `FlowUIv2` communicates **strictly via `go-flowAPI`** (`FlowApiClient`) to load, save, upload, delete, and execute pipelines, configs, and options. `FlowUIv2` has **no direct database connection** and **no internal database**.
+> **Architecture Note:** `FlowUI` communicates **strictly via `go-flowAPI`** (`FlowApiClient`) to load, save, upload, delete, and execute pipelines, configs, and options. `FlowUI` has **no direct database connection** and **no internal database**.
 
 ---
 
@@ -10,12 +10,12 @@ This guide explains how to build, configure, and run **FlowUIv2** in Docker usin
 
 | File | Target OS | Services Included | Description |
 | :--- | :--- | :--- | :--- |
-| [`Dockerfile`](./Dockerfile) | **Linux** (Default) | `flowuiv2` | Multi-stage build using `mcr.microsoft.com/dotnet/sdk:10.0` and `mcr.microsoft.com/dotnet/aspnet:10.0` (runs as non-root `$APP_UID`). |
-| [`Dockerfile.windows`](./Dockerfile.windows) | **Windows** (`ltsc2022`) | `flowuiv2` | Multi-stage build using `windowsservercore-ltsc2022` for Windows Integrated Authentication (`FLOW_UI_AUTH_MODE=Windows`). |
-| [`docker-compose.yml`](./docker-compose.yml) | Linux (or Windows via env) | `flowuiv2` | **Combination 1 (Default)**: Runs `FlowUIv2` only; connects to an existing external `go-flowAPI`. |
-| [`docker-compose.api.yml`](./docker-compose.api.yml) | Linux | `flowuiv2` + `go-flow-api` | **Combination 2**: Builds and runs both `FlowUIv2` and `../go-flowAPI` (with `../go-flow` build context); `go-flow-api` connects to an external SQL Server. |
-| [`docker-compose.full.yml`](./docker-compose.full.yml) | Linux | `flowuiv2` + `go-flow-api` + `sqlserver` + `sqlserver-init` | **Combination 3 (Full Stack)**: Self-contained stack with SQL Server 2022, automatic `EXAMPLE_DB` database & table initialization for `go-flowAPI`, `go-flowAPI`, and `FlowUIv2`. |
-| [`docker-compose.windows.yml`](./docker-compose.windows.yml) | Windows | `flowuiv2` | **Windows Container Mode**: Builds `Dockerfile.windows` with `FLOW_UI_AUTH_MODE=Windows`. |
+| [`Dockerfile`](./Dockerfile) | **Linux** (Default) | `FlowUI` | Multi-stage build using `mcr.microsoft.com/dotnet/sdk:10.0` and `mcr.microsoft.com/dotnet/aspnet:10.0` (runs as non-root `$APP_UID`). |
+| [`Dockerfile.windows`](./Dockerfile.windows) | **Windows** (`ltsc2022`) | `FlowUI` | Multi-stage build using `windowsservercore-ltsc2022` for Windows Integrated Authentication (`FLOW_UI_AUTH_MODE=Windows`). |
+| [`docker-compose.yml`](./docker-compose.yml) | Linux (or Windows via env) | `FlowUI` | **Combination 1 (Default)**: Runs `FlowUI` only; connects to an existing external `go-flowAPI`. |
+| [`docker-compose.api.yml`](./docker-compose.api.yml) | Linux | `FlowUI` + `go-flow-api` | **Combination 2**: Builds and runs both `FlowUI` and `../go-flowAPI` (with `../go-flow` build context); `go-flow-api` connects to an external SQL Server. |
+| [`docker-compose.full.yml`](./docker-compose.full.yml) | Linux | `FlowUI` + `go-flow-api` + `sqlserver` + `sqlserver-init` | **Combination 3 (Full Stack)**: Self-contained stack with SQL Server 2022, automatic `EXAMPLE_DB` database & table initialization for `go-flowAPI`, `go-flowAPI`, and `FlowUI`. |
+| [`docker-compose.windows.yml`](./docker-compose.windows.yml) | Windows | `FlowUI` | **Windows Container Mode**: Builds `Dockerfile.windows` with `FLOW_UI_AUTH_MODE=Windows`. |
 | [`docker/init/sqlserver-init.sql`](./docker/init/sqlserver-init.sql) | SQL Server | `sqlserver-init` | Idempotent SQL script that creates the `EXAMPLE_DB` database and core `flow_*` / `pipeline_*` tables for `go-flowAPI` on startup. |
 | [`.env.example`](./.env.example) | Both | All | Template environment variables file for Docker Compose. |
 
@@ -29,11 +29,11 @@ Copy [`.env.example`](./.env.example) to `.env` in the repository root before ru
 Copy-Item .env.example .env
 ```
 
-### `FlowUIv2` Environment Variables
+### `FlowUI` Environment Variables
 
 | Variable | Default in Compose | Description |
 | :--- | :--- | :--- |
-| `FLOW_UI_PORT` | `5185` | Host and container HTTP port for `FlowUIv2`. |
+| `FLOW_UI_PORT` | `5185` | Host and container HTTP port for `FlowUI`. |
 | `FLOW_API_HOST` | `http://host.docker.internal` | Base scheme + hostname for `go-flowAPI` (`http://go-flow-api` in `api`/`full` compose files). |
 | `FLOW_API_PORT` | `8080` | Port for `go-flowAPI`. |
 | `FLOW_API_URL` | *(optional)* | Full URL override for `go-flowAPI` (overrides `FLOW_API_HOST` + `FLOW_API_PORT` if set). |
@@ -52,7 +52,7 @@ Copy-Item .env.example .env
 
 ## 3. Usage & Examples by Deployment Scenario
 
-### Scenario 1: `FlowUIv2` Only (Default — External `go-flowAPI`)
+### Scenario 1: `FlowUI` Only (Default — External `go-flowAPI`)
 
 Use [`docker-compose.yml`](./docker-compose.yml) when `go-flowAPI` is already running on your host machine or another server on your network.
 
@@ -70,11 +70,11 @@ Open **`http://localhost:5185`** in your browser.
 
 ---
 
-### Scenario 2: `FlowUIv2` + `go-flowAPI` (External SQL Server)
+### Scenario 2: `FlowUI` + `go-flowAPI` (External SQL Server)
 
-Use [`docker-compose.api.yml`](./docker-compose.api.yml) to containerize both the Blazor UI (`flowuiv2`) and the Go backend (`go-flow-api`) while `go-flow-api` connects to an existing SQL Server instance.
+Use [`docker-compose.api.yml`](./docker-compose.api.yml) to containerize both the Blazor UI (`FlowUI`) and the Go backend (`go-flow-api`) while `go-flow-api` connects to an existing SQL Server instance.
 
-> **Note:** Expects the sibling repositories `../go-flowAPI` and `../go-flow` to exist alongside `flowUIv2` (`etl-madness/go-flowAPI` and `etl-madness/go-flow`).
+> **Note:** Expects the sibling repositories `../go-flowAPI` and `../go-flow` to exist alongside `FlowUI` (`etl-madness/go-flowAPI` and `etl-madness/go-flow`).
 
 #### Example: Run UI + API against external SQL Server `t15p`
 ```powershell
@@ -88,18 +88,18 @@ $env:FLOW_UI_ADMIN_PASSWORD = "Admin123!"
 docker compose -f docker-compose.api.yml up -d --build
 ```
 
-- **FlowUIv2 Studio:** `http://localhost:5185`
+- **FlowUI Studio:** `http://localhost:5185`
 - **go-flowAPI Endpoint:** `http://localhost:8080/api/v1/health`
 
 ---
 
-### Scenario 3: Full Stack (`FlowUIv2` + `go-flowAPI` + SQL Server 2022)
+### Scenario 3: Full Stack (`FlowUI` + `go-flowAPI` + SQL Server 2022)
 
 Use [`docker-compose.full.yml`](./docker-compose.full.yml) to spin up a complete, self-contained environment from scratch:
 1. **`sqlserver`** starts Microsoft SQL Server 2022 Developer Edition and waits until healthy.
 2. **`sqlserver-init`** executes [`docker/init/sqlserver-init.sql`](./docker/init/sqlserver-init.sql) to create the `EXAMPLE_DB` database and all `flow_*` / `pipeline_*` tables for `go-flowAPI`.
 3. **`go-flow-api`** starts on port `8080` connected to `sqlserver` and bootstraps the admin API user.
-4. **`flowuiv2`** starts on port `5185` and connects exclusively to `go-flow-api`.
+4. **`FlowUI`** starts on port `5185` and connects exclusively to `go-flow-api`.
 
 #### Example: Launch the full stack
 ```powershell
@@ -110,11 +110,11 @@ docker compose -f docker-compose.full.yml up -d --build
 Check container status and initialization logs:
 ```powershell
 docker compose -f docker-compose.full.yml ps
-docker compose -f docker-compose.full.yml logs -f flowuiv2 go-flow-api
+docker compose -f docker-compose.full.yml logs -f FlowUI go-flow-api
 ```
 
 Access the stack:
-- **FlowUIv2 Web UI:** `http://localhost:5185` (Login via `ApiBasic` with `admin` / `Admin123!`)
+- **FlowUI Web UI:** `http://localhost:5185` (Login via `ApiBasic` with `admin` / `Admin123!`)
 - **go-flowAPI Health:** `http://localhost:8080/api/v1/health`
 
 ---
@@ -138,25 +138,25 @@ If you prefer running `docker` directly without Docker Compose:
 ### Build & Run Linux Container
 ```powershell
 # 1. Build the image
-docker build -t flowuiv2:latest -f Dockerfile .
+docker build -t FlowUI:latest -f Dockerfile .
 
 # 2. Run the container connected to go-flowAPI
-docker run -d --name flowuiv2 `
+docker run -d --name FlowUI `
   -p 5185:5185 `
   --add-host=host.docker.internal:host-gateway `
   -e FLOW_API_HOST="http://host.docker.internal" `
   -e FLOW_API_PORT="8080" `
   -e FLOW_UI_AUTH_MODE="ApiBasic" `
-  flowuiv2:latest
+  FlowUI:latest
 ```
 
 ### Build & Run Linux Container with Explicit `FLOW_API_URL`
 ```bash
-docker run -d --name flowuiv2 \
+docker run -d --name FlowUI \
   -p 5185:5185 \
   -e FLOW_API_URL="http://10.0.0.25:8080" \
   -e FLOW_UI_AUTH_MODE="ApiBasic" \
-  flowuiv2:latest
+  FlowUI:latest
 ```
 
 ---
@@ -166,7 +166,7 @@ docker run -d --name flowuiv2 \
 ### View Live Logs
 ```powershell
 # Default compose
-docker compose logs -f flowuiv2
+docker compose logs -f FlowUI
 
 # Full stack
 docker compose -f docker-compose.full.yml logs -f
