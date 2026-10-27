@@ -1,22 +1,38 @@
 @implements IDisposable
 @inject StudioStateService Studio
 @inject DocsService Docs
+@inject IJSRuntime JS
 
 @if (Studio.IsDocModalOpen)
 {
     var html = Docs.GetGuideHtml(Studio.DocModalComponentType);
+    var relatedGuides = Docs.GetRelatedGuides(Studio.DocModalComponentType);
 
     <div class="modal-overlay" @onclick="Studio.CloseDocModal">
         <div class="modal-box modal-lg" @onclick:stopPropagation="true">
-            <div class="modal-header">
-                <div style="display:flex; align-items:center; gap:8px;">
+            <div class="modal-header" style="flex-wrap:wrap; gap:8px;">
+                <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
                     <span>📖 Component Guide:</span>
                     <span class="palette-tag">&lt;@Studio.DocModalComponentType&gt;</span>
+                    @if (relatedGuides.Count > 1)
+                    {
+                        <div style="display:flex; align-items:center; gap:4px; margin-left:8px;">
+                            @foreach (var topic in relatedGuides)
+                            {
+                                var isActive = string.Equals(Studio.DocModalComponentType, topic.TopicKey, StringComparison.OrdinalIgnoreCase);
+                                <button type="button"
+                                        class="btn btn-sm @(isActive ? "btn-primary" : "")"
+                                        @onclick="() => Studio.OpenDocModal(topic.TopicKey)">
+                                    @topic.Label
+                                </button>
+                            }
+                        </div>
+                    }
                 </div>
                 <button type="button" class="btn btn-sm" @onclick="Studio.CloseDocModal">✕</button>
             </div>
 
-            <div class="modal-body doc-guide-body">
+            <div class="modal-body doc-guide-body" @key="Studio.DocModalComponentType">
                 @((MarkupString)html)
             </div>
 
@@ -31,6 +47,21 @@
     protected override void OnInitialized()
     {
         Studio.OnChange += HandleStudioChanged;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (Studio.IsDocModalOpen)
+        {
+            try
+            {
+                await JS.InvokeVoidAsync("flowStudio.renderMermaid", ".doc-guide-body");
+            }
+            catch
+            {
+                // Ignore transient JS interop disconnect errors
+            }
+        }
     }
 
     private void HandleStudioChanged() => _ = InvokeAsync(StateHasChanged);

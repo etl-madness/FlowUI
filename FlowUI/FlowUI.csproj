@@ -13,4 +13,8 @@
     <PackageReference Include="System.Security.Cryptography.Pkcs" Version="10.0.13" />
   </ItemGroup>
 
+  <ItemGroup>
+    <EmbeddedResource Include="Docs\**\*.md" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

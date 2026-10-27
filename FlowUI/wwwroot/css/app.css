@@ -1097,6 +1097,21 @@ textarea.form-control {
   padding: 7px 10px;
   text-align: left;
 }
+.doc-guide-body .mermaid {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px;
+  margin: 14px 0;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  overflow-x: auto;
+}
+.doc-guide-body .mermaid svg {
+  max-width: 100%;
+  height: auto;
+}
 
 /* Login Overlay Card */
 .login-backdrop {
