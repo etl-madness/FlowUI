@@ -269,5 +269,21 @@ public sealed class SavedDatabaseProfile
     public string Description { get; set; } = string.Empty;
     public int MaxOpenConns { get; set; } = 10;
     public int MaxIdleConns { get; set; } = 5;
+    public bool? LastTestSucceeded
+    {
+        get; set;
+    }
+    public long? LastTestLatencyMs
+    {
+        get; set;
+    }
+    public string? LastTestMessage
+    {
+        get; set;
+    }
+    public DateTime? LastTestedAt
+    {
+        get; set;
+    }
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 }

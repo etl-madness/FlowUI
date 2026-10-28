@@ -36,7 +36,10 @@
                 @((MarkupString)html)
             </div>
 
-            <div class="modal-footer">
+            <div class="modal-footer" style="justify-content:space-between;">
+                <a href="/handbook#hb-item-@Studio.DocModalComponentType" target="_blank" rel="noopener noreferrer" class="btn" style="text-decoration:none;">
+                    📖 Open in Full Handbook ↗
+                </a>
                 <button type="button" class="btn btn-primary" @onclick="Studio.CloseDocModal">Close Guide</button>
             </div>
         </div>

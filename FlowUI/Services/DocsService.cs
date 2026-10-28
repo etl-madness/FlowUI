@@ -2,11 +2,31 @@ using System.Net;
 using System.Reflection;
 using System.Text;
 using System.Text.RegularExpressions;
+using FlowUI.Models;
 using Markdig;
 
 namespace FlowUI.Services;
 
 public sealed record DocTopicOption(string TopicKey, string Label);
+
+public sealed record HandbookHeading(string Id, string Text, int Level);
+
+public sealed record HandbookItem(
+    string Key,
+    string Tag,
+    string Title,
+    string Category,
+    string Section,
+    string Description,
+    bool IsSupplementalGuide,
+    ComponentMeta? Metadata,
+    string MarkdownContent,
+    string HtmlContent,
+    IReadOnlyList<HandbookHeading> Headings);
+
+public sealed record HandbookCategoryGroup(
+    string Category,
+    IReadOnlyList<HandbookItem> Items);
 
 /// <summary>
 /// Loads component markdown guides from bundled Docs/, embedded assembly resources, or ../go-flow/docs
@@ -89,11 +109,12 @@ public sealed class DocsService
                 new("database", "📖 <database> Component Guide"),
                 new("connection_strings", "🔗 Connection Strings Reference")
             ],
-            "sql" or "sql_bulk" or "sql_and_sql_bulk" =>
+            "sql" or "sql_bulk" or "sql_and_sql_bulk" or "db_select_template_stdio" =>
             [
                 new("sql", "📖 <sql> Guide"),
                 new("sql_bulk", "📖 <sql_bulk> Guide"),
-                new("sql_and_sql_bulk", "📚 SQL & SQL Bulk Deep Dive")
+                new("sql_and_sql_bulk", "📚 SQL & SQL Bulk Deep Dive"),
+                new("db_select_template_stdio", "📚 DB Select to Template & Stdio")
             ],
             "template" or "template_html" or "html_template" or "template_and_template_html" =>
             [
@@ -123,15 +144,54 @@ public sealed class DocsService
         @"<(\/?([a-zA-Z_][\w-]*)(?:\s[^<>]*)?\/?)>",
         RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
+    private static readonly Regex HeadingTagRegex = new(
+        @"<h([23])\s+id=""([^""]+)""([^>]*)>([\s\S]*?)</h\1>",
+        RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
+
+    private static readonly Regex HtmlTagStripRegex = new(
+        @"<[^>]+>",
+        RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
     private static readonly HashSet<string> AllowedMermaidHtmlTags = new(StringComparer.OrdinalIgnoreCase)
     {
         "br", "b", "i", "u", "s", "strong", "em", "code", "pre", "span", "small", "sub", "sup", "p", "div"
     };
 
+    private static readonly HashSet<string> AliasComponentsSharingPrimaryMarkdown = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "kv_bulk",
+        "html_template",
+        "xml_path"
+    };
+
+    private IReadOnlyList<HandbookCategoryGroup>? _cachedHandbookGroups;
+
     public string GetComponentGuideHtml(string nodeType)
     {
         var md = GetComponentGuideMarkdown(nodeType);
-        var html = Markdown.ToHtml(md, _pipeline);
+        return RenderMarkdownToHtml(md);
+    }
+
+    public string GetGuideHtml(string nodeType) => GetComponentGuideHtml(nodeType);
+
+    public string RenderMarkdownToHtml(string md, string? headingIdPrefix = null)
+    {
+        var html = Markdown.ToHtml(md ?? string.Empty, _pipeline);
+
+        if (!string.IsNullOrWhiteSpace(headingIdPrefix))
+        {
+            var safePrefix = headingIdPrefix.Trim();
+            html = HeadingTagRegex.Replace(html, match =>
+            {
+                var level = match.Groups[1].Value;
+                var origId = match.Groups[2].Value;
+                var restAttrs = match.Groups[3].Value;
+                var innerHtml = match.Groups[4].Value;
+                var newId = $"{safePrefix}-{origId}";
+                return $"<h{level} id=\"{newId}\" data-hb-heading=\"{newId}\"{restAttrs}>{innerHtml}</h{level}>";
+            });
+        }
+
         return MermaidBlockRegex.Replace(html, static match =>
         {
             var rawMermaid = WebUtility.HtmlDecode(match.Groups[1].Value).Trim();
@@ -151,7 +211,160 @@ public sealed class DocsService
         });
     }
 
-    public string GetGuideHtml(string nodeType) => GetComponentGuideHtml(nodeType);
+    private static IReadOnlyList<HandbookHeading> ExtractHeadingsFromHtml(string html)
+    {
+        var list = new List<HandbookHeading>();
+        foreach (Match match in HeadingTagRegex.Matches(html))
+        {
+            if (!int.TryParse(match.Groups[1].Value, out var level))
+            {
+                level = 2;
+            }
+            var id = match.Groups[2].Value;
+            var rawInner = match.Groups[4].Value;
+            var cleanText = WebUtility.HtmlDecode(HtmlTagStripRegex.Replace(rawInner, string.Empty)).Trim();
+            if (!string.IsNullOrWhiteSpace(cleanText))
+            {
+                list.Add(new HandbookHeading(id, cleanText, level));
+            }
+        }
+        return list;
+    }
+
+    public IReadOnlyList<HandbookCategoryGroup> GetHandbookGroups()
+    {
+        if (_cachedHandbookGroups is not null)
+        {
+            return _cachedHandbookGroups;
+        }
+
+        var groups = new List<HandbookCategoryGroup>();
+
+        foreach (var category in _catalog.Categories)
+        {
+            var items = new List<HandbookItem>();
+            var categoryComponents = _catalog.GetByCategory(category).ToList();
+
+            foreach (var comp in categoryComponents)
+            {
+                var md = GetComponentGuideMarkdown(comp.Type);
+                var prefix = $"hb-{comp.Type}";
+                var html = RenderMarkdownToHtml(md, prefix);
+                var headings = ExtractHeadingsFromHtml(html);
+
+                items.Add(new HandbookItem(
+                    Key: comp.Type,
+                    Tag: comp.Tag,
+                    Title: comp.Name,
+                    Category: comp.Category,
+                    Section: comp.Section,
+                    Description: comp.Description,
+                    IsSupplementalGuide: false,
+                    Metadata: comp,
+                    MarkdownContent: md,
+                    HtmlContent: html,
+                    Headings: headings));
+
+                // Insert supplemental deep-dive guides right after their primary component
+                if (string.Equals(comp.Type, "variable", StringComparison.OrdinalIgnoreCase))
+                {
+                    items.Add(BuildSupplementalItem(
+                        key: "variables",
+                        tag: "variables",
+                        title: "Variables & Scoping Guide",
+                        category: category,
+                        section: "variables",
+                        description: "Deep-dive guide on pipeline variable scoping, thread-safe registry operations, type conversions, and dynamic interpolation."));
+                }
+                else if (string.Equals(comp.Type, "database", StringComparison.OrdinalIgnoreCase))
+                {
+                    items.Add(BuildSupplementalItem(
+                        key: "database_connection_strings",
+                        tag: "connection_strings",
+                        title: "Connection Strings & Driver Reference",
+                        category: category,
+                        section: "databases",
+                        description: "Comprehensive reference of all supported SQL and Key-Value database drivers, DSN formats, TLS settings, and pool tuning profiles."));
+                }
+                else if (string.Equals(comp.Type, "sql_bulk", StringComparison.OrdinalIgnoreCase))
+                {
+                    items.Add(BuildSupplementalItem(
+                        key: "sql_and_sql_bulk",
+                        tag: "sql + sql_bulk",
+                        title: "SQL & SQL Bulk Deep Dive",
+                        category: category,
+                        section: "flow",
+                        description: "Architecture and performance guide comparing <sql> and <sql_bulk> for relational queries, batching, and streaming replication."));
+
+                    items.Add(BuildSupplementalItem(
+                        key: "db_select_template_stdio",
+                        tag: "os.stdio",
+                        title: "DB Query to Template & Standard I/O",
+                        category: category,
+                        section: "flow",
+                        description: "End-to-end guide on querying a database, formatting rows with <template>, and streaming output to standard I/O (os.stdio)."));
+                }
+                else if (string.Equals(comp.Type, "html_template", StringComparison.OrdinalIgnoreCase))
+                {
+                    items.Add(BuildSupplementalItem(
+                        key: "template_and_template_html",
+                        tag: "template + html",
+                        title: "Template & HTML Overview",
+                        category: category,
+                        section: "flow",
+                        description: "Side-by-side comparison and usage patterns for <template> (text/template) and <template_html> (html/template)."));
+                }
+                else if (string.Equals(comp.Type, "json_path", StringComparison.OrdinalIgnoreCase))
+                {
+                    items.Add(BuildSupplementalItem(
+                        key: "json_path_guide",
+                        tag: "json_path",
+                        title: "JSON Path Deep Dive",
+                        category: category,
+                        section: "flow",
+                        description: "Extended reference and expression patterns for JSONPath filtering, array projection, and structured extraction."));
+                }
+            }
+
+            if (items.Count > 0)
+            {
+                groups.Add(new HandbookCategoryGroup(category, items));
+            }
+        }
+
+        _cachedHandbookGroups = groups;
+        return groups;
+    }
+
+    public IReadOnlyList<HandbookItem> GetAllHandbookItems() =>
+        GetHandbookGroups().SelectMany(g => g.Items).ToList();
+
+    private HandbookItem BuildSupplementalItem(
+        string key,
+        string tag,
+        string title,
+        string category,
+        string section,
+        string description)
+    {
+        var md = GetComponentGuideMarkdown(key);
+        var prefix = $"hb-{key}";
+        var html = RenderMarkdownToHtml(md, prefix);
+        var headings = ExtractHeadingsFromHtml(html);
+
+        return new HandbookItem(
+            Key: key,
+            Tag: tag,
+            Title: title,
+            Category: category,
+            Section: section,
+            Description: description,
+            IsSupplementalGuide: true,
+            Metadata: null,
+            MarkdownContent: md,
+            HtmlContent: html,
+            Headings: headings);
+    }
 
     public string GetComponentGuideMarkdown(string nodeType)
     {
@@ -240,6 +453,11 @@ public sealed class DocsService
             return $"# `<{safeNodeType}>`\n\nNo documentation found for component `{safeNodeType}`.";
         }
 
+        return BuildCatalogMarkdown(meta);
+    }
+
+    public static string BuildCatalogMarkdown(ComponentMeta meta)
+    {
         var sb = new StringBuilder();
         sb.AppendLine($"# `{meta.Name}` (`<{meta.Tag}>`)");
         sb.AppendLine();

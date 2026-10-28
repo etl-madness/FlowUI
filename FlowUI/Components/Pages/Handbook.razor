@@ -1,0 +1,585 @@
+@page "/handbook"
+@implements IDisposable
+@inject DocsService Docs
+@inject StudioStateService Studio
+@inject IJSRuntime JS
+
+<PageTitle>Flow Builder — Component Guide Handbook</PageTitle>
+
+<div class="studio-shell" data-theme="@_activeTheme">
+    <!-- Top Header Bar -->
+    <header class="studio-header">
+        <div class="brand">
+            <img src="favicon.png" alt="Flow Builder" class="brand-icon" />
+            <span>Flow Builder</span>
+            <span class="accent-badge">Handbook</span>
+        </div>
+
+        <div style="display:flex; align-items:center; gap:10px; flex:1; max-width:520px; margin:0 16px;">
+            <div class="handbook-search-wrapper" style="width:100%;">
+                <span class="handbook-search-icon">🔍</span>
+                <input type="text"
+                       class="handbook-search-input"
+                       placeholder="Search all components, XML tags, attributes, SQL, variables, templates..."
+                       value="@_searchQuery"
+                       @oninput="OnSearchInput" />
+                @if (!string.IsNullOrWhiteSpace(_searchQuery))
+                {
+                    <button type="button" class="handbook-search-clear" title="Clear search" @onclick="ClearSearch">✕</button>
+                }
+            </div>
+        </div>
+
+        <div class="header-right">
+            <span class="status-pill" title="Matching guides in Handbook">
+                <span>📚 @FilteredItemCount / @TotalItemCount Guides</span>
+            </span>
+
+            <select class="form-control header-theme-select" value="@_activeTheme" @onchange="OnThemeChanged" title="Color Theme">
+                @foreach (var t in StudioStateService.Themes)
+                {
+                    <option value="@t.Id">@t.Label</option>
+                }
+            </select>
+
+            <a href="/" class="btn btn-sm" style="text-decoration:none;" title="Return to Flow Builder Studio">
+                ⬅ Studio
+            </a>
+        </div>
+    </header>
+
+    <!-- Main Split Workspace: Left Centered Tree + Right Scrollable Content -->
+    <div class="handbook-workspace">
+        <!-- Left Tree Navigation Panel -->
+        <aside class="handbook-sidebar">
+            <div class="handbook-sidebar-controls">
+                <div class="handbook-search-wrapper">
+                    <span class="handbook-search-icon">🔍</span>
+                    <input type="text"
+                           class="handbook-search-input"
+                           placeholder="Filter tree &amp; guides..."
+                           value="@_searchQuery"
+                           @oninput="OnSearchInput" />
+                    @if (!string.IsNullOrWhiteSpace(_searchQuery))
+                    {
+                        <button type="button" class="handbook-search-clear" title="Clear filter" @onclick="ClearSearch">✕</button>
+                    }
+                </div>
+
+                <div class="handbook-tree-toolbar">
+                    <span>@FilteredGroupCount Categories · @FilteredItemCount Items</span>
+                    <div style="display:flex; gap:6px; align-items:center;">
+                        <button type="button"
+                                class="btn btn-sm"
+                                style="padding:2px 6px; font-size:0.7rem;"
+                                title="Toggle section subheadings in tree"
+                                @onclick="ToggleSubheadings">
+                            @(_showSubheadings ? "Hide §" : "Show §")
+                        </button>
+                        <button type="button"
+                                class="btn btn-sm"
+                                style="padding:2px 6px; font-size:0.7rem;"
+                                title="Expand or Collapse all categories"
+                                @onclick="ToggleAllCategories">
+                            @(_collapsedCategories.Count == 0 ? "Collapse" : "Expand")
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Scrollable Tree Viewport (auto-centered on scroll) -->
+            <div id="handbook-tree-scroll" class="handbook-tree-viewport">
+                <div class="handbook-tree-inner @(!string.IsNullOrWhiteSpace(_searchQuery) ? "search-active" : "")">
+                    @if (FilteredGroups.Count == 0)
+                    {
+                        <div class="empty-placeholder" style="margin:12px 4px;">
+                            No components or guides match "<strong>@_searchQuery</strong>".
+                        </div>
+                    }
+                    else
+                    {
+                        @foreach (var group in FilteredGroups)
+                        {
+                            var isCollapsed = _collapsedCategories.Contains(group.Category) && string.IsNullOrWhiteSpace(_searchQuery);
+                            <div class="handbook-tree-category @(_activeCategory == group.Category ? "active-category" : "")"
+                                 data-tree-category="@group.Category">
+                                <button type="button"
+                                        class="handbook-tree-category-header"
+                                        @onclick="() => ToggleCategory(group.Category)">
+                                    <span>@(isCollapsed ? "▸" : "▾") @group.Category</span>
+                                    <span class="section-badge">@group.Items.Count</span>
+                                </button>
+
+                                @if (!isCollapsed)
+                                {
+                                    <div class="handbook-tree-children">
+                                        @foreach (var item in group.Items)
+                                        {
+                                            var isItemActive = string.Equals(_activeKey, item.Key, StringComparison.OrdinalIgnoreCase);
+                                            <div class="handbook-tree-node @(isItemActive ? "active" : "")">
+                                                <button type="button"
+                                                        class="handbook-tree-item @(isItemActive ? "active" : "")"
+                                                        data-tree-key="@item.Key"
+                                                        title="@item.Title — @item.Description"
+                                                        @onclick='() => ScrollToItemAsync($"hb-item-{item.Key}", item.Key, group.Category)'>
+                                                    <span class="handbook-tree-item-tag">@(item.IsSupplementalGuide ? $"📚 {item.Tag}" : $"<{item.Tag}>")</span>
+                                                    <span class="handbook-tree-item-title">@GetShortItemLabel(item)</span>
+                                                </button>
+
+                                                @if (_showSubheadings && item.Headings.Count > 0)
+                                                {
+                                                    <div class="handbook-tree-subheadings">
+                                                        @foreach (var h in item.Headings)
+                                                        {
+                                                            var isHeadingActive = string.Equals(_activeHeadingId, h.Id, StringComparison.OrdinalIgnoreCase);
+                                                            <button type="button"
+                                                                    class="handbook-tree-subheading level-@h.Level @(isHeadingActive ? "active" : "")"
+                                                                    data-tree-heading="@h.Id"
+                                                                    title="@h.Text"
+                                                                    @onclick="() => ScrollToHeadingAsync(h.Id, item.Key, group.Category)">
+                                                                @h.Text
+                                                            </button>
+                                                        }
+                                                    </div>
+                                                }
+                                            </div>
+                                        }
+                                    </div>
+                                }
+                            </div>
+                        }
+                    }
+                </div>
+            </div>
+        </aside>
+
+        <!-- Right Scrollable Content Viewport -->
+        <main id="handbook-content-scroll" class="handbook-content-viewport">
+            <div class="handbook-content-container">
+                @if (FilteredGroups.Count == 0)
+                {
+                    <div class="section-container" style="padding:36px; text-align:center;">
+                        <h3 style="margin-bottom:8px;">No matching component guides found</h3>
+                        <p style="color:var(--text-muted); margin-bottom:16px;">
+                            No guides matched your search query "<strong>@_searchQuery</strong>".
+                        </p>
+                        <button type="button" class="btn btn-primary" @onclick="ClearSearch">Reset Search Filter</button>
+                    </div>
+                }
+                else
+                {
+                    @foreach (var group in FilteredGroups)
+                    {
+                        <div class="handbook-category-banner">
+                            <h2>📂 @group.Category</h2>
+                            <span class="section-badge">@group.Items.Count @(group.Items.Count == 1 ? "Guide" : "Guides")</span>
+                        </div>
+
+                        @foreach (var item in group.Items)
+                        {
+                            <article id="hb-item-@item.Key"
+                                     class="handbook-section"
+                                     data-handbook-key="@item.Key"
+                                     data-handbook-category="@group.Category">
+                                <div class="handbook-section-header">
+                                    <div class="handbook-section-title-group">
+                                        <span class="palette-tag" style="font-size:0.88rem; padding:3px 9px;">@(item.IsSupplementalGuide ? $"📚 {item.Tag}" : $"<{item.Tag}>")</span>
+                                        <strong style="font-size:1.02rem; color:var(--text-main);">@item.Title</strong>
+                                        @if (item.IsSupplementalGuide)
+                                        {
+                                            <span class="badge badge-running">Reference Guide</span>
+                                        }
+                                    </div>
+
+                                    <div class="handbook-section-meta">
+                                        <span class="section-badge" title="Category">@item.Category</span>
+                                        @if (item.Metadata is not null)
+                                        {
+                                            <span class="section-badge" title="Target XML Pipeline Section">
+                                                Section: &lt;@item.Metadata.Section&gt;
+                                            </span>
+                                            @if (IsContainerComponent(item.Metadata.Type))
+                                            {
+                                                <span class="badge badge-success" title="Container node that can hold child steps">
+                                                    @(string.Equals(item.Metadata.Type, "if", StringComparison.OrdinalIgnoreCase) ? "Branch Container" : "Container")
+                                                </span>
+                                            }
+                                        }
+                                        <button type="button"
+                                                class="btn btn-sm"
+                                                title="Copy XML tag / topic key"
+                                                @onclick="() => CopyTagAsync(item)">
+                                            📋 @(_copiedKey == item.Key ? "Copied!" : "Copy Tag")
+                                        </button>
+                                        <button type="button"
+                                                class="btn btn-sm"
+                                                title="Scroll to top of Handbook"
+                                                @onclick="ScrollToTopAsync">
+                                            ↑ Top
+                                        </button>
+                                    </div>
+                                </div>
+
+                                @if (item.Metadata is not null && item.Metadata.Attributes.Count > 0)
+                                {
+                                    <details class="handbook-attrs-strip">
+                                        <summary>
+                                            ⚙️ Quick Schema Reference — @item.Metadata.Attributes.Count Supported Attribute(s)@(item.Metadata.HasContent ? $" + Inner Content ({item.Metadata.ContentLabel})" : "")
+                                        </summary>
+                                        <table class="data-table" style="margin-top:10px;">
+                                            <thead>
+                                                <tr>
+                                                    <th>Attribute</th>
+                                                    <th>Required</th>
+                                                    <th>Default / Options</th>
+                                                    <th>Description</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                @foreach (var attr in item.Metadata.Attributes)
+                                                {
+                                                    <tr>
+                                                        <td><code>@attr.Name</code></td>
+                                                        <td>
+                                                            @if (attr.Required)
+                                                            {
+                                                                <span class="badge badge-error">Required</span>
+                                                            }
+                                                            else
+                                                            {
+                                                                <span style="color:var(--text-muted); font-size:0.75rem;">Optional</span>
+                                                            }
+                                                        </td>
+                                                        <td>
+                                                            @if (attr.Options is { Count: > 0 })
+                                                            {
+                                                                <span>Options: <code>@string.Join(" | ", attr.Options)</code></span>
+                                                            }
+                                                            else if (!string.IsNullOrWhiteSpace(attr.Default))
+                                                            {
+                                                                <code>@attr.Default</code>
+                                                            }
+                                                            else
+                                                            {
+                                                                <span style="color:var(--text-muted);">—</span>
+                                                            }
+                                                        </td>
+                                                        <td>@(string.IsNullOrWhiteSpace(attr.Help) ? attr.Label : attr.Help)</td>
+                                                    </tr>
+                                                }
+                                            </tbody>
+                                        </table>
+                                    </details>
+                                }
+
+                                <div class="handbook-section-body doc-guide-body">
+                                    @((MarkupString)item.HtmlContent)
+                                </div>
+                            </article>
+                        }
+                    }
+                }
+            </div>
+        </main>
+    </div>
+</div>
+
+@code {
+    private IReadOnlyList<HandbookCategoryGroup> _allGroups = [];
+    private readonly HashSet<string> _collapsedCategories = new(StringComparer.OrdinalIgnoreCase);
+    private string _searchQuery = string.Empty;
+    private string _activeTheme = "midnight";
+    private string _activeKey = string.Empty;
+    private string _activeCategory = string.Empty;
+    private string _activeHeadingId = string.Empty;
+    private string _copiedKey = string.Empty;
+    private bool _showSubheadings = false;
+    private bool _needsScrollSpyRefresh = true;
+    private DotNetObjectReference<Handbook>? _dotNetRef;
+
+    private IReadOnlyList<HandbookCategoryGroup> FilteredGroups
+    {
+        get
+        {
+            if (string.IsNullOrWhiteSpace(_searchQuery))
+            {
+                return _allGroups;
+            }
+
+            var terms = _searchQuery
+                .Trim()
+                .Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+            var result = new List<HandbookCategoryGroup>();
+            foreach (var group in _allGroups)
+            {
+                var matchingItems = group.Items
+                    .Where(item => MatchesAllTerms(item, terms))
+                    .ToList();
+
+                if (matchingItems.Count > 0)
+                {
+                    result.Add(new HandbookCategoryGroup(group.Category, matchingItems));
+                }
+            }
+
+            return result;
+        }
+    }
+
+    private int TotalItemCount => _allGroups.Sum(g => g.Items.Count);
+    private int FilteredItemCount => FilteredGroups.Sum(g => g.Items.Count);
+    private int FilteredGroupCount => FilteredGroups.Count;
+
+    protected override void OnInitialized()
+    {
+        _activeTheme = Studio.ActiveTheme;
+        _allGroups = Docs.GetHandbookGroups();
+        var firstGroup = _allGroups.FirstOrDefault();
+        var firstItem = firstGroup?.Items.FirstOrDefault();
+        if (firstGroup is not null && firstItem is not null)
+        {
+            _activeCategory = firstGroup.Category;
+            _activeKey = firstItem.Key;
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _dotNetRef = DotNetObjectReference.Create(this);
+            try
+            {
+                var savedTheme = await JS.InvokeAsync<string>("flowStudio.getSavedTheme");
+                if (!string.IsNullOrWhiteSpace(savedTheme) && !string.Equals(savedTheme, _activeTheme, StringComparison.OrdinalIgnoreCase))
+                {
+                    _activeTheme = savedTheme;
+                    await Studio.SetThemeAsync(savedTheme, logEvent: false);
+                    StateHasChanged();
+                }
+            }
+            catch
+            {
+                // Ignore if circuit disconnected during prerender
+            }
+        }
+
+        if (_needsScrollSpyRefresh)
+        {
+            _needsScrollSpyRefresh = false;
+            try
+            {
+                await JS.InvokeVoidAsync("flowStudio.renderMermaid", "#handbook-content-scroll", false);
+                await JS.InvokeVoidAsync("flowStudio.initHandbookScrollSpy", "#handbook-content-scroll", "#handbook-tree-scroll", _dotNetRef);
+            }
+            catch
+            {
+                // Ignore transient JS interop disconnect errors
+            }
+        }
+    }
+
+    [JSInvokable]
+    public void OnScrollActiveKeyChanged(string activeKey, string activeHeadingId)
+    {
+        if (string.IsNullOrWhiteSpace(activeKey))
+        {
+            return;
+        }
+
+        var changed = !string.Equals(_activeKey, activeKey, StringComparison.OrdinalIgnoreCase)
+                   || !string.Equals(_activeHeadingId, activeHeadingId ?? string.Empty, StringComparison.OrdinalIgnoreCase);
+
+        if (!changed)
+        {
+            return;
+        }
+
+        _activeKey = activeKey;
+        _activeHeadingId = activeHeadingId ?? string.Empty;
+
+        foreach (var g in _allGroups)
+        {
+            if (g.Items.Any(i => string.Equals(i.Key, activeKey, StringComparison.OrdinalIgnoreCase)))
+            {
+                _activeCategory = g.Category;
+                break;
+            }
+        }
+    }
+
+    private void OnSearchInput(ChangeEventArgs e)
+    {
+        _searchQuery = e.Value?.ToString() ?? string.Empty;
+        _needsScrollSpyRefresh = true;
+
+        var firstGroup = FilteredGroups.FirstOrDefault();
+        var firstItem = firstGroup?.Items.FirstOrDefault();
+        if (firstGroup is not null && firstItem is not null)
+        {
+            _activeCategory = firstGroup.Category;
+            _activeKey = firstItem.Key;
+        }
+    }
+
+    private void ClearSearch()
+    {
+        _searchQuery = string.Empty;
+        _needsScrollSpyRefresh = true;
+    }
+
+    private void ToggleCategory(string category)
+    {
+        if (!_collapsedCategories.Remove(category))
+        {
+            _collapsedCategories.Add(category);
+        }
+    }
+
+    private void ToggleAllCategories()
+    {
+        if (_collapsedCategories.Count == 0)
+        {
+            foreach (var g in _allGroups)
+            {
+                _collapsedCategories.Add(g.Category);
+            }
+        }
+        else
+        {
+            _collapsedCategories.Clear();
+        }
+    }
+
+    private void ToggleSubheadings()
+    {
+        _showSubheadings = !_showSubheadings;
+    }
+
+    private async Task ScrollToItemAsync(string elementId, string itemKey, string category)
+    {
+        _activeKey = itemKey;
+        _activeCategory = category;
+        _activeHeadingId = string.Empty;
+        _collapsedCategories.Remove(category);
+
+        try
+        {
+            await JS.InvokeVoidAsync("flowStudio.scrollToHandbookElement", elementId, itemKey);
+        }
+        catch
+        {
+            // Ignore JS errors
+        }
+    }
+
+    private async Task ScrollToHeadingAsync(string headingId, string itemKey, string category)
+    {
+        _activeKey = itemKey;
+        _activeCategory = category;
+        _activeHeadingId = headingId;
+
+        try
+        {
+            await JS.InvokeVoidAsync("flowStudio.scrollToHandbookElement", headingId, itemKey);
+        }
+        catch
+        {
+            // Ignore JS errors
+        }
+    }
+
+    private async Task ScrollToTopAsync()
+    {
+        var firstGroup = FilteredGroups.FirstOrDefault();
+        var firstItem = firstGroup?.Items.FirstOrDefault();
+        if (firstGroup is not null && firstItem is not null)
+        {
+            await ScrollToItemAsync($"hb-item-{firstItem.Key}", firstItem.Key, firstGroup.Category);
+        }
+    }
+
+    private async Task CopyTagAsync(HandbookItem item)
+    {
+        var snippet = item.IsSupplementalGuide ? item.Key : $"<{item.Tag}>";
+        try
+        {
+            await JS.InvokeVoidAsync("flowStudio.copyToClipboard", snippet);
+            _copiedKey = item.Key;
+            StateHasChanged();
+            await Task.Delay(1400);
+            if (_copiedKey == item.Key)
+            {
+                _copiedKey = string.Empty;
+                StateHasChanged();
+            }
+        }
+        catch
+        {
+            // Ignore clipboard errors
+        }
+    }
+
+    private async Task OnThemeChanged(ChangeEventArgs e)
+    {
+        var theme = e.Value?.ToString();
+        if (!string.IsNullOrWhiteSpace(theme))
+        {
+            _activeTheme = theme;
+            await Studio.SetThemeAsync(theme);
+            try
+            {
+                await JS.InvokeVoidAsync("flowStudio.saveTheme", theme);
+            }
+            catch
+            {
+                // Ignore JS interop failures
+            }
+        }
+    }
+
+    private static string GetShortItemLabel(HandbookItem item)
+    {
+        if (!item.IsSupplementalGuide && !string.IsNullOrWhiteSpace(item.Description))
+        {
+            return item.Description;
+        }
+        return item.Title;
+    }
+
+    private static bool IsContainerComponent(string? nodeType) =>
+        nodeType?.ToLowerInvariant() is "if" or "group" or "parallel" or "foreach" or "while" or "preflight";
+
+    private static bool MatchesAllTerms(HandbookItem item, string[] terms)
+    {
+        foreach (var term in terms)
+        {
+            var matched = item.Key.Contains(term, StringComparison.OrdinalIgnoreCase)
+                || item.Tag.Contains(term, StringComparison.OrdinalIgnoreCase)
+                || item.Title.Contains(term, StringComparison.OrdinalIgnoreCase)
+                || item.Category.Contains(term, StringComparison.OrdinalIgnoreCase)
+                || item.Description.Contains(term, StringComparison.OrdinalIgnoreCase)
+                || item.MarkdownContent.Contains(term, StringComparison.OrdinalIgnoreCase)
+                || item.Headings.Any(h => h.Text.Contains(term, StringComparison.OrdinalIgnoreCase))
+                || (item.Metadata is not null && (
+                    item.Metadata.Section.Contains(term, StringComparison.OrdinalIgnoreCase)
+                    || item.Metadata.Attributes.Any(a =>
+                        a.Name.Contains(term, StringComparison.OrdinalIgnoreCase)
+                        || a.Label.Contains(term, StringComparison.OrdinalIgnoreCase)
+                        || a.Help.Contains(term, StringComparison.OrdinalIgnoreCase))
+                ));
+
+            if (!matched)
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    public void Dispose()
+    {
+        _dotNetRef?.Dispose();
+    }
+}

@@ -437,27 +437,58 @@ public sealed class StudioStateService
         if (string.IsNullOrWhiteSpace(profile.Name))
             return;
 
-        var existing = SavedDbProfiles.FirstOrDefault(p =>
+        SavedDatabaseProfile? existing = null;
+        if (profile.Id > 0)
+        {
+            existing = SavedDbProfiles.FirstOrDefault(p => p.Id == profile.Id);
+        }
+        existing ??= SavedDbProfiles.FirstOrDefault(p =>
             string.Equals(p.Name, profile.Name.Trim(), StringComparison.OrdinalIgnoreCase));
 
         if (existing is not null)
         {
+            var connChanged = !string.Equals(existing.ConnectionString, profile.ConnectionString, StringComparison.Ordinal)
+                           || !string.Equals(existing.Driver, profile.Driver, StringComparison.OrdinalIgnoreCase);
+
+            existing.Name = profile.Name.Trim();
             existing.Driver = profile.Driver;
             existing.ConnectionString = profile.ConnectionString;
             existing.Description = profile.Description;
+            if (profile.LastTestSucceeded.HasValue)
+            {
+                existing.LastTestSucceeded = profile.LastTestSucceeded;
+                existing.LastTestLatencyMs = profile.LastTestLatencyMs;
+                existing.LastTestMessage = profile.LastTestMessage;
+                existing.LastTestedAt = profile.LastTestedAt;
+            }
+            else if (connChanged)
+            {
+                existing.LastTestSucceeded = null;
+                existing.LastTestLatencyMs = null;
+                existing.LastTestMessage = null;
+                existing.LastTestedAt = null;
+            }
             existing.UpdatedAt = DateTime.UtcNow;
+            profile.Id = existing.Id;
         }
         else
         {
-            SavedDbProfiles.Add(new SavedDatabaseProfile
+            var nextId = SavedDbProfiles.Count == 0 ? 1 : SavedDbProfiles.Max(p => p.Id) + 1;
+            var added = new SavedDatabaseProfile
             {
-                Id = SavedDbProfiles.Count + 1,
+                Id = nextId,
                 Name = profile.Name.Trim(),
                 Driver = profile.Driver,
                 ConnectionString = profile.ConnectionString,
                 Description = profile.Description,
+                LastTestSucceeded = profile.LastTestSucceeded,
+                LastTestLatencyMs = profile.LastTestLatencyMs,
+                LastTestMessage = profile.LastTestMessage,
+                LastTestedAt = profile.LastTestedAt,
                 UpdatedAt = DateTime.UtcNow
-            });
+            };
+            SavedDbProfiles.Add(added);
+            profile.Id = added.Id;
         }
         NotifyStateChanged();
     }
