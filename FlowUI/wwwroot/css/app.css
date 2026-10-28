@@ -1134,3 +1134,358 @@ textarea.form-control {
   padding: 26px;
   box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.75);
 }
+
+/* =========================================================
+   COMPONENT GUIDE HANDBOOK (/handbook)
+   ========================================================= */
+.handbook-workspace {
+  display: grid;
+  grid-template-columns: 340px 1fr;
+  flex: 1;
+  min-height: 0;
+  height: calc(100vh - 50px);
+  overflow: hidden;
+  background: var(--bg-main);
+  align-items: start;
+}
+
+.handbook-sidebar {
+  position: sticky;
+  top: 0;
+  left: 0;
+  background: var(--bg-panel);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - 50px);
+  min-height: 0;
+  overflow: hidden;
+  align-self: start;
+}
+
+.handbook-sidebar-controls {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+  background: rgba(128, 128, 128, 0.05);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.handbook-search-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.handbook-search-input {
+  width: 100%;
+  padding: 8px 30px 8px 30px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-main);
+  font-size: 0.83rem;
+}
+
+.handbook-search-input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+}
+
+.handbook-search-icon {
+  position: absolute;
+  left: 9px;
+  font-size: 0.82rem;
+  color: var(--text-muted);
+  pointer-events: none;
+}
+
+.handbook-search-clear {
+  position: absolute;
+  right: 6px;
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 0.8rem;
+  padding: 2px 5px;
+  border-radius: 4px;
+}
+
+.handbook-search-clear:hover {
+  color: var(--text-main);
+  background: rgba(128, 128, 128, 0.16);
+}
+
+.handbook-tree-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.74rem;
+  color: var(--text-muted);
+}
+
+/* Left tree container: anchored at top-left and always visible */
+.handbook-tree-viewport {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  align-items: stretch;
+  padding: 10px 10px 16px 10px;
+  scroll-behavior: smooth;
+}
+
+.handbook-tree-inner {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.handbook-tree-category {
+  border: 1px solid transparent;
+  border-radius: 7px;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.handbook-tree-category.active-category {
+  border-color: rgba(59, 130, 246, 0.28);
+  background: rgba(59, 130, 246, 0.04);
+}
+
+.handbook-tree-category-header {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 8px;
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font-size: 0.74rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  cursor: pointer;
+  border-radius: 6px;
+  text-align: left;
+}
+
+.handbook-tree-category-header:hover {
+  background: var(--bg-hover);
+  color: var(--text-main);
+}
+
+.handbook-tree-category.active-category .handbook-tree-category-header {
+  color: #60a5fa;
+}
+
+.handbook-tree-children {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 2px 4px 6px 10px;
+  border-left: 1px solid var(--border);
+  margin-left: 12px;
+}
+
+.handbook-tree-item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 9px;
+  border-radius: 5px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-main);
+  font-size: 0.81rem;
+  cursor: pointer;
+  text-align: left;
+  transition: all 0.14s;
+}
+
+.handbook-tree-item:hover {
+  background: var(--bg-hover);
+}
+
+.handbook-tree-item.active {
+  background: rgba(59, 130, 246, 0.18);
+  border-color: var(--accent);
+  border-left: 3px solid var(--accent);
+  color: #93c5fd;
+  font-weight: 600;
+}
+
+.handbook-tree-item-tag {
+  font-family: "Cascadia Code", Consolas, monospace;
+  font-size: 0.77rem;
+  font-weight: 700;
+  color: #60a5fa;
+  flex-shrink: 0;
+}
+
+.handbook-tree-item-title {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.77rem;
+  color: var(--text-muted);
+}
+
+.handbook-tree-item.active .handbook-tree-item-title {
+  color: var(--text-main);
+}
+
+.handbook-tree-subheadings {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 2px 0 4px 12px;
+  margin-left: 10px;
+  border-left: 1px dashed var(--border);
+}
+
+.handbook-tree-subheading {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font-size: 0.74rem;
+  padding: 3px 8px;
+  border-radius: 4px;
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: all 0.12s;
+}
+
+.handbook-tree-subheading.level-3 {
+  padding-left: 18px;
+  font-size: 0.71rem;
+}
+
+.handbook-tree-subheading:hover {
+  color: var(--text-main);
+  background: var(--bg-hover);
+}
+
+.handbook-tree-subheading.active {
+  color: #60a5fa;
+  font-weight: 600;
+  background: rgba(59, 130, 246, 0.12);
+}
+
+/* Right Scrollable Content Pane */
+.handbook-content-viewport {
+  height: 100%;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 24px 32px 60vh 32px;
+  scroll-behavior: auto;
+}
+
+.handbook-content-container {
+  max-width: 1020px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+}
+
+.handbook-category-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  background: rgba(59, 130, 246, 0.08);
+  border: 1px solid rgba(59, 130, 246, 0.25);
+  border-left: 4px solid var(--accent);
+  border-radius: 8px;
+  margin-top: 8px;
+}
+
+.handbook-category-banner h2 {
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--text-main);
+  margin: 0;
+}
+
+.handbook-section {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
+  transition: border-color 0.2s;
+}
+
+.handbook-section:hover {
+  border-color: rgba(96, 165, 250, 0.45);
+}
+
+.handbook-section-header {
+  padding: 14px 20px;
+  background: rgba(128, 128, 128, 0.07);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.handbook-section-title-group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.handbook-section-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.handbook-attrs-strip {
+  padding: 12px 20px;
+  background: rgba(128, 128, 128, 0.03);
+  border-bottom: 1px solid var(--border);
+}
+
+.handbook-attrs-strip summary {
+  cursor: pointer;
+  font-size: 0.79rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  user-select: none;
+}
+
+.handbook-attrs-strip summary:hover {
+  color: var(--text-main);
+}
+
+.handbook-section-body {
+  padding: 20px 24px;
+}
+
+@media (max-width: 900px) {
+  .handbook-workspace {
+    grid-template-columns: 260px 1fr;
+  }
+  .handbook-content-viewport {
+    padding: 16px;
+  }
+}

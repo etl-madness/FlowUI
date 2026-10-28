@@ -453,8 +453,24 @@
     {
         <div style="display:grid; grid-template-columns:430px 1fr; gap:18px;">
             <div class="panel" style="border:1px solid var(--border); border-radius:8px;">
-                <div class="panel-header">
-                    <span>🗄 Test Database Connection via <code>go-flowAPI</code></span>
+                <div class="panel-header" style="display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap;">
+                    <span>🗄 @(_editProfile.Id > 0 ? $"Edit Database Profile (#{_editProfile.Id})" : "Test Database Connection via go-flowAPI")</span>
+                    @if (_editProfile.LastTestSucceeded == true)
+                    {
+                        <span class="badge badge-success" title="@_editProfile.LastTestMessage">
+                            ✔ Tested@(_editProfile.LastTestLatencyMs.HasValue ? $" ({_editProfile.LastTestLatencyMs} ms)" : "")
+                        </span>
+                    }
+                    else if (_editProfile.LastTestSucceeded == false)
+                    {
+                        <span class="badge badge-error" title="@_editProfile.LastTestMessage">
+                            ❌ Failed
+                        </span>
+                    }
+                    else
+                    {
+                        <span class="section-badge">⚪ Untested</span>
+                    }
                 </div>
                 <div class="panel-body">
                     <div class="form-group">
@@ -479,12 +495,17 @@
                         <input class="form-control" @bind="_editProfile.Description" />
                     </div>
 
-                    <div style="display:flex; gap:8px; flex-wrap:wrap;">
-                        <button type="button" class="btn" @onclick="TestViaFlowApiAsync">
-                            🌐 Ping via go-flowAPI (/api/v1/db/test)
-                        </button>
-                        <button type="button" class="btn btn-primary" @onclick="SaveDbProfileAsync">
-                            💾 Save Profile in Session
+                    <div style="display:flex; gap:8px; flex-wrap:wrap; justify-content:space-between;">
+                        <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                            <button type="button" class="btn" @onclick="TestViaFlowApiAsync">
+                                🌐 Ping via go-flowAPI (/api/v1/db/test)
+                            </button>
+                            <button type="button" class="btn btn-primary" @onclick="SaveDbProfileAsync">
+                                💾 @(_editProfile.Id > 0 ? "Update Profile" : "Save Profile in Session")
+                            </button>
+                        </div>
+                        <button type="button" class="btn btn-sm" @onclick="ResetDbProfileForm" title="Clear form to create a new profile">
+                            Clear / New
                         </button>
                     </div>
 
@@ -505,6 +526,7 @@
                             <tr>
                                 <th>Profile Name</th>
                                 <th>Driver</th>
+                                <th>Status</th>
                                 <th>Description</th>
                                 <th>Actions</th>
                             </tr>
@@ -512,14 +534,44 @@
                         <tbody>
                             @foreach (var prof in Studio.SavedDbProfiles)
                             {
-                                <tr>
+                                var isEditing = _editProfile.Id == prof.Id && prof.Id > 0;
+                                <tr style="@(isEditing ? "background:rgba(59, 130, 246, 0.1);" : "")">
                                     <td><strong>@prof.Name</strong></td>
                                     <td><code>@prof.Driver</code></td>
+                                    <td>
+                                        @if (prof.LastTestSucceeded == true)
+                                        {
+                                            <span class="badge badge-success" title="@prof.LastTestMessage">
+                                                ✔ Tested@(prof.LastTestLatencyMs.HasValue ? $" ({prof.LastTestLatencyMs} ms)" : "")
+                                            </span>
+                                        }
+                                        else if (prof.LastTestSucceeded == false)
+                                        {
+                                            <span class="badge badge-error" title="@prof.LastTestMessage">
+                                                ❌ Failed
+                                            </span>
+                                        }
+                                        else
+                                        {
+                                            <span class="section-badge" title="Connection has not been tested in this session yet">
+                                                ⚪ Untested
+                                            </span>
+                                        }
+                                    </td>
                                     <td>@prof.Description</td>
                                     <td>
-                                        <button type="button" class="btn btn-sm" @onclick="() => _editProfile = new SavedDatabaseProfile { Name = prof.Name, Driver = prof.Driver, ConnectionString = prof.ConnectionString, Description = prof.Description }">
-                                            Load / Test
-                                        </button>
+                                        <div style="display:flex; gap:5px; flex-wrap:wrap;">
+                                            <button type="button" class="btn btn-sm"
+                                                    title="Edit this database connection profile"
+                                                    @onclick="() => EditDbProfile(prof)">
+                                                ✎ Edit
+                                            </button>
+                                            <button type="button" class="btn btn-sm"
+                                                    title="Load and immediately test this profile via go-flowAPI"
+                                                    @onclick="() => LoadAndTestDbProfileAsync(prof)">
+                                                🌐 Test
+                                            </button>
+                                        </div>
                                     </td>
                                 </tr>
                             }
@@ -742,6 +794,41 @@
         await Studio.LogEventAsync("AUTH", "SWITCH_PROVIDER", "auth_provider", providerName, "SUCCESS", 0, null);
     }
 
+    private void EditDbProfile(SavedDatabaseProfile prof)
+    {
+        _editProfile = new SavedDatabaseProfile
+        {
+            Id = prof.Id,
+            Name = prof.Name,
+            Driver = prof.Driver,
+            ConnectionString = prof.ConnectionString,
+            Description = prof.Description,
+            LastTestSucceeded = prof.LastTestSucceeded,
+            LastTestLatencyMs = prof.LastTestLatencyMs,
+            LastTestMessage = prof.LastTestMessage,
+            LastTestedAt = prof.LastTestedAt
+        };
+    }
+
+    private void ResetDbProfileForm()
+    {
+        _editProfile = new SavedDatabaseProfile
+        {
+            Id = 0,
+            Name = string.Empty,
+            Driver = "sqlserver",
+            ConnectionString = string.Empty,
+            Description = string.Empty
+        };
+        _pingResultMessage = string.Empty;
+    }
+
+    private async Task LoadAndTestDbProfileAsync(SavedDatabaseProfile prof)
+    {
+        EditDbProfile(prof);
+        await TestViaFlowApiAsync();
+    }
+
     private async Task TestViaFlowApiAsync()
     {
         if (!Auth.CurrentPermissions.IsAdmin && !Auth.CurrentPermissions.CanExecute)
@@ -754,6 +841,26 @@
         _pingResultMessage = res.Connected
             ? $"✔ go-flowAPI (/api/v1/db/test) Connected in {res.LatencyMs} ms\n  Dialect: {res.Dialect}\n  DB User: {res.DbUser}\n  SPID: {res.Spid}"
             : $"❌ go-flowAPI DB Test Failed ({res.LatencyMs} ms): {res.Error}";
+
+        _editProfile.LastTestSucceeded = res.Connected;
+        _editProfile.LastTestLatencyMs = res.LatencyMs;
+        _editProfile.LastTestMessage = _pingResultMessage;
+        _editProfile.LastTestedAt = DateTime.UtcNow;
+
+        var savedMatch = Studio.SavedDbProfiles.FirstOrDefault(p =>
+            (_editProfile.Id > 0 && p.Id == _editProfile.Id) ||
+            (!string.IsNullOrWhiteSpace(_editProfile.Name) &&
+             string.Equals(p.Name, _editProfile.Name.Trim(), StringComparison.OrdinalIgnoreCase)));
+
+        if (savedMatch is not null)
+        {
+            savedMatch.LastTestSucceeded = res.Connected;
+            savedMatch.LastTestLatencyMs = res.LatencyMs;
+            savedMatch.LastTestMessage = _pingResultMessage;
+            savedMatch.LastTestedAt = _editProfile.LastTestedAt;
+            Studio.NotifyStateChanged();
+        }
+
         await Studio.LogEventAsync("DB", "PING_API_DB", "db_profile", _editProfile.Name, res.Connected ? "SUCCESS" : "FAILED", res.LatencyMs, res.Error);
     }
 
