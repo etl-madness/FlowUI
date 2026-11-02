@@ -46,6 +46,8 @@ public sealed class DocsService
         ["excel_write"] = "excel_write.md",
         ["file_read"] = "file_read.md",
         ["file_save"] = "file_save.md",
+        ["flowui_and_goflowapi"] = "flowui_and_goflowapi.md",
+        ["architecture"] = "flowui_and_goflowapi.md",
         ["foreach"] = "foreach.md",
         ["loop"] = "foreach.md",
         ["group"] = "group.md",
@@ -238,7 +240,20 @@ public sealed class DocsService
             return _cachedHandbookGroups;
         }
 
-        var groups = new List<HandbookCategoryGroup>();
+        var groups = new List<HandbookCategoryGroup>
+        {
+            new(
+                "Architecture & Deployment",
+                [
+                    BuildSupplementalItem(
+                        key: "flowui_and_goflowapi",
+                        tag: "FlowUI + go-flowAPI",
+                        title: "Compiling FlowUI & go-flowAPI Integration",
+                        category: "Architecture & Deployment",
+                        section: "platform",
+                        description: "How to compile, run, and publish FlowUI, configure environment variables, and understand how FlowUI integrates with the go-flowAPI backend.")
+                ])
+        };
 
         foreach (var category in _catalog.Categories)
         {
