@@ -1,9 +1,11 @@
-# `<group>` Execution Group & Database Transactions Guide
+# `<group>` Reference & Execution Guide
 
-The `<group>` element organizes child pipeline steps into a sequential, cohesive execution block. It serves three critical functions in Flow pipelines:
-1. **Logical Step Organization**: Cleanly groups related tasks under a shared identifier, descriptive label, and lifecycle scope.
-2. **Atomic Database Transactions & Dialect-Aware Savepoints**: Coordinates multiple `<sql>` queries into an all-or-nothing transaction with automatic commit and rollback, plus dialect-aware savepoints for nested groups.
-3. **Conditional Execution & Error Resilience**: Evaluates conditions before running child steps and governs fault tolerance via granular retry policies (`on_error`, `retry_count`, `retry_interval`).
+The `<group>` element organizes child pipeline nodes into a sequential, cohesive execution block. In addition to logical step organization, `<group>` supports four core capabilities:
+
+1. **Conditional Execution** (`var` / `if_var` / `condition` + `equals` / `if_equals`)
+2. **Atomic Database Transactions** (`transaction="true"` / `tx="true"`) with automatic dialect-aware nested savepoint support
+3. **Session Connection Pinning** (`session="true"` / `pin_connection="true"` / `pin_conn="true"` / `sticky="true"`) for sharing temporary tables (`#Temp`, `TEMP TABLE`) and session state across steps without holding long-lived transaction locks
+4. **Scoped Execution Timeouts** (`timeout="30s"`, `timeout="5m"`, etc.)
 
 ---
 
@@ -11,203 +13,259 @@ The `<group>` element organizes child pipeline steps into a sequential, cohesive
 
 ```mermaid
 flowchart TD
-    Start(["Enter &lt;group&gt;"]) --> CondCheck{"Has Condition?<br/>(condition / if_var)"}
+    Start(["Enter &lt;group&gt;"]) --> CondCheck{"Has Condition?<br/>(var / if_var / condition)"}
     
     CondCheck -- "Condition Fails" --> Skipped(["Skip Group &amp; Children"])
-    CondCheck -- "Passes or None" --> TxCheck{"transaction='true'?"}
+    CondCheck -- "Passes or None" --> TimeoutCheck{"timeout Set with<br/>session or transaction?"}
     
-    TxCheck -- "No" --> ExecSteps["Execute Child Steps Sequentially"]
+    TimeoutCheck -- "Yes" --> DeriveCtx["Derive Child Context<br/>context.WithTimeout(ctx, timeout)"]
+    TimeoutCheck -- "No" --> KeepCtx["Use Parent Context"]
+    
+    DeriveCtx --> SessionCheck{"session='true'?"}
+    KeepCtx --> SessionCheck
+    
+    SessionCheck -- "Yes (Root Session)" --> PinConn["Pin Dedicated *sql.Conn<br/>db.Conn(ctx) &amp; Push to activeConns"]
+    SessionCheck -- "Yes (Nested on Same DB)" --> ReuseConn["Reuse Ancestor *sql.Conn<br/>Push to activeConns"]
+    SessionCheck -- "No" --> TxCheck{"transaction='true'?"}
+    
+    PinConn --> TxCheck
+    ReuseConn --> TxCheck
+    
+    TxCheck -- "No" --> ExecSteps["Execute Child Nodes Sequentially<br/>(Routes SQL: activeTxs → activeConns → *sql.DB)"]
     TxCheck -- "Yes" --> StackCheck{"Active Outer Tx<br/>on Same DB?"}
     
-    StackCheck -- "No (Root Tx)" --> BeginTx["BeginTx(ctx)<br/>Push to Transaction Stack"]
-    StackCheck -- "Yes (Nested)" --> CreateSP["Create Dialect Savepoint<br/>• MSSQL: SAVE TRANSACTION sp_N<br/>• ANSI: SAVEPOINT sp_N"]
+    StackCheck -- "No (Root Tx)" --> BeginTx["BeginTx(ctx, nil)<br/>(On pinned *sql.Conn if active, else *sql.DB)<br/>Push to activeTxs"]
+    StackCheck -- "Yes (Nested Tx)" --> CreateSP["Create Dialect Savepoint<br/>• MSSQL: SAVE TRANSACTION sp_N<br/>• ANSI: SAVEPOINT sp_N"]
     
     BeginTx --> ExecSteps
     CreateSP --> ExecSteps
     
-    ExecSteps --> StepResult{"All Steps<br/>Succeeded?"}
+    ExecSteps --> StepResult{"All Child Nodes<br/>Succeeded?"}
     
     StepResult -- "Yes" --> TxSuccess{"transaction='true'?"}
-    TxSuccess -- "No" --> Done(["Group Completed"])
-    TxSuccess -- "Yes (Root)" --> CommitTx["Commit Transaction<br/>Pop Stack"] --> Done
-    TxSuccess -- "Yes (Nested)" --> ReleaseSP["Release / Finalize Savepoint<br/>Pop Stack"] --> Done
+    TxSuccess -- "No" --> CleanupSession
+    TxSuccess -- "Yes (Root Tx)" --> CommitTx["Commit Transaction<br/>Pop activeTxs"] --> CleanupSession
+    TxSuccess -- "Yes (Nested Tx)" --> ReleaseSP["Release Savepoint<br/>Pop activeTxs"] --> CleanupSession
     
-    StepResult -- "No (Error/Timeout)" --> ErrorPolicy{"on_error Policy"}
+    StepResult -- "No (Error / Timeout)" --> TxFail{"transaction='true'?"}
+    TxFail -- "Yes (Root Tx)" --> RollbackTx["Rollback Transaction<br/>Pop activeTxs"] --> CleanupSessionFail
+    TxFail -- "Yes (Nested Tx)" --> RollbackSP["Rollback to Savepoint<br/>Pop activeTxs"] --> CleanupSessionFail
+    TxFail -- "No" --> CleanupSessionFail
     
-    ErrorPolicy -- "retry (count > 0)" --> RollbackAttempt["Rollback Tx or SP<br/>Wait retry_interval"] --> ExecSteps
-    ErrorPolicy -- "continue" --> RollbackCont["Rollback Tx or SP<br/>Log Warning &amp; Continue"] --> Done
-    ErrorPolicy -- "stop (Default)" --> RollbackFail["Rollback Tx or SP<br/>Abort Pipeline"] --> Fail(["Pipeline Error"])
+    CleanupSession["If session='true': Pop activeConns<br/>(&amp; Close *sql.Conn if Root Owner)"] --> Done(["Group Succeeded"])
+    CleanupSessionFail["If session='true': Pop activeConns<br/>(&amp; Close *sql.Conn if Root Owner)"] --> Fail(["Propagate Error"])
 ```
 
 ---
 
-## 2. Complete XML Syntax & Attribute Reference
+## 2. Supported Attributes
 
 ```xml
-<group id="ProcessBatch"
-       transaction="true"
-       db="finance_db"
-       timeout="45s"
-       on_error="retry"
-       retry_count="3"
-       retry_interval="5s"
-       condition="{{IsActive}} == true"
-       description="Executes accounting batch with atomic commit and retry">
-    <!-- Sequential child steps: <sql>, <script>, <http_client>, <template>, etc. -->
+<group id="staged_order_settlement"
+       var="ENABLE_SETTLEMENT"
+       equals="true"
+       session="true"
+       transaction="false"
+       db="orders_db"
+       timeout="5m"
+       description="Stages and settles orders using a pinned database session">
+    <!-- Sequential child nodes: <sql>, <sql_bulk>, <foreach>, <group>, <script>, <assert>, etc. -->
 </group>
 ```
 
-### Attribute Reference
-
-| Attribute | Type | Mandatory | Default | Description |
-| :--- | :--- | :--- | :--- | :--- |
-| `id` | `string` | **Yes** (Recommended) | generated | Unique identifier for the group step, displayed in execution telemetry, logs, and flowcharts. |
-| `transaction` | `bool` | No | `false` | When `true`, wraps all child `<sql>` steps inside an atomic database transaction. |
-| `tx` | `bool` | No | `false` | Alias for `transaction`. |
-| `db` | `string` | Conditional | — | The configured database connection name to open the transaction against. **Mandatory** when `transaction="true"`. |
-| `database` | `string` | No | — | Alias for `db`. |
-| `timeout` | `string` | No | — | Transaction deadline duration (e.g. `30s`, `2m`, `1h`). Cancels the context and triggers an automatic rollback if exceeded. |
-| `on_error` | `string` | No | `stop` | Failure policy when a child step returns an error: `stop` (abort group and pipeline), `continue` (log and proceed to next sibling), or `retry` (reattempt group). |
-| `retry_count` | `int` | No | `0` | Number of retry attempts when `on_error="retry"`. |
-| `retry_interval`| `string` | No | `1s` | Delay between retry attempts (e.g. `500ms`, `2s`, `10s`). |
-| `condition` | `string` | No | — | Inline boolean expression evaluated before execution (e.g. `{{Env}} == 'prod'`, `{{TotalCount}} > 0`). |
-| `cond` | `string` | No | — | Alias for `condition`. |
-| `if_var` | `string` | No | — | Name of a pipeline variable to test for execution (e.g. `RunBatch`). Alias `var`. |
-| `var` | `string` | No | — | Alias for `if_var`. |
-| `if_equals` | `string` | No | — | Expected variable value required for the group to execute. Aliases: `equals`, `if_val`, `val`, `value`. |
-| `equals` | `string` | No | — | Alias for `if_equals`. |
-| `if_val` | `string` | No | — | Alias for `if_equals`. |
-| `val` | `string` | No | — | Alias for `if_equals`. |
-| `value` | `string` | No | — | Alias for `if_equals`. |
-| `description` | `string` | No | — | Descriptive summary of the group's purpose. |
+| Attribute | Aliases | Type | Mandatory | Default | Description |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| `id` | `name` | `string` | No | — | Unique identifier for the group node in execution results, observability events, and diagnostics. |
+| `var` | `if_var` | `string` | No | — | Name of the pipeline variable evaluated before executing the group. If the condition does not match, the group and all child nodes are skipped. |
+| `condition` | `cond` | `string` | No | — | Inline condition expression or variable name evaluated when `var` / `if_var` is not set. Supports `{{Var}} == 'val'` and `{{Var}} != 'val'` expressions. |
+| `equals` | `val`, `value`, `if_val`, `if_equals` | `string` | No | `"true"` (when `var` is set without `==`/`!=`) | Expected value required for the group to execute when `var` or `if_var` is specified. Supports `{{Variable}}` interpolation. |
+| `transaction` | `tx` | `boolean` | No | `false` | Wraps all child database operations on `db` in an atomic database transaction (`*sql.Tx`). Commits when all children succeed; rolls back automatically on error or context cancellation. |
+| `session` | `pin_connection`, `pin_conn`, `sticky` | `boolean` | No | `false` | Pins a single physical database connection (`*sql.Conn`) from the pool for `db` across all child steps so session-scoped temporary tables and session settings persist. |
+| `db` | `database` | `string` | Conditional | — | Name of the registered `<database>` connection. **Required** when `transaction="true"` or `session="true"`. |
+| `timeout` | — | `string` | No | — | Scoped execution deadline for the group (e.g., `"30s"`, `"5m"`, `"1h"`). Derives a child `context.WithTimeout` for the transaction or session group and all nested steps. |
+| `description` | — | `string` | No | — | Human-readable description of the group block. |
 
 ---
 
-## 3. Database Transactions & Dialect-Aware Savepoints
+## 3. Execution Modes
 
-Flow implements a thread-safe, stack-based transaction coordinator (`activeTxs`). It guarantees that all child database operations within the group succeed as a single atomic unit or roll back completely upon failure.
+### Mode A: Logical & Conditional Grouping
 
-```mermaid
-flowchart TD
-    subgraph OuterGroup ["Outer &lt;group id='financial_transfer' transaction='true' db='bank_db'&gt;"]
-        T1["BeginTx() on bank_db"] --> S1["1. UPDATE accounts SET balance = balance - 500 WHERE id = 1"]
-        
-        subgraph InnerGroup ["Inner &lt;group id='nested_audit' transaction='true' db='bank_db'&gt;"]
-            SP["Create Savepoint (sp_1)<br/>• MSSQL: SAVE TRANSACTION sp_1<br/>• ANSI: SAVEPOINT sp_1"] --> S2["2. INSERT INTO transfer_audit_log VALUES (...)"]
-            S2 --> SPCheck{"Audit Step Ok?"}
-            SPCheck -- "Success" --> SPRelease["Release / Retain Savepoint"]
-            SPCheck -- "Failure" --> SPRollback["ROLLBACK TO SAVEPOINT sp_1<br/>(Outer Tx remains intact)"]
-        end
-        
-        S1 --> SP
-        SPRelease --> S3["3. UPDATE accounts SET balance = balance + 500 WHERE id = 2"]
-        SPRollback --> S3
-        
-        S3 --> FinalCheck{"All Steps Ok?"}
-        FinalCheck -- "Success" --> CommitTx["Commit Outer Transaction"]
-        FinalCheck -- "Failure" --> RollbackTx["Rollback Full Transaction"]
-    end
-```
-
-### Dialect-Aware Savepoints
-When an inner `<group transaction="true">` targets the same database connection as an active outer transaction, Flow detects the nested state and automatically establishes a savepoint:
-
-| Database Driver | Savepoint Command | Rollback Command | Release Command |
-| :--- | :--- | :--- | :--- |
-| **PostgreSQL** (`postgres`, `pgx`) | `SAVEPOINT sp_N` | `ROLLBACK TO SAVEPOINT sp_N` | `RELEASE SAVEPOINT sp_N` |
-| **SQLite** (`sqlite3`) | `SAVEPOINT sp_N` | `ROLLBACK TO SAVEPOINT sp_N` | `RELEASE SAVEPOINT sp_N` |
-| **MySQL / MariaDB** (`mysql`) | `SAVEPOINT sp_N` | `ROLLBACK TO SAVEPOINT sp_N` | `RELEASE SAVEPOINT sp_N` |
-| **Oracle** (`godror`) | `SAVEPOINT sp_N` | `ROLLBACK TO SAVEPOINT sp_N` | — *(Automatic on commit)* |
-| **Microsoft SQL Server** (`sqlserver`, `mssql`) | `SAVE TRANSACTION sp_N` | `ROLLBACK TRANSACTION sp_N` | — *(T-SQL omits release syntax)* |
-
-> [!NOTE]
-> If an inner group with a savepoint fails, Flow rolls back **only to that savepoint**, allowing the outer transaction to inspect the failure, execute alternative logic, or proceed to completion without corrupting the broader transaction.
-
----
-
-## 4. Context Propagation & Execution Deadlines (`timeout`)
-
-Database locks held by uncommitted transactions can degrade database performance and cause deadlocks. Flow binds every transaction group to a Go `context.Context`:
-
-* **Granular Timeouts**: Specify `timeout="30s"` or `timeout="5m"` on the group.
-* **Automatic Rollback**: If the timeout duration expires or an external cancellation signal arrives, the context is cancelled immediately. Flow executes an atomic deferred rollback, closing the transaction and releasing all table locks.
+Use `<group>` to organize related steps and optionally gate their execution on a pipeline variable or inline condition expression without needing a separate `<if><then>...</then></if>` wrapper.
 
 ```xml
-<group id="critical_update" transaction="true" db="crm_db" timeout="15s">
-    <sql id="apply_discount" db="crm_db">
-        UPDATE subscriptions SET discount_pct = 0.20 WHERE renew_date &lt;= CURRENT_DATE;
+<group id="run_if_enabled" var="ENABLE_CLEANUP" equals="true" description="Optional cleanup steps">
+    <sql id="purge_old_logs" db="app_db">
+        DELETE FROM audit_logs WHERE created_at &lt; CURRENT_DATE - INTERVAL '90 days';
+    </sql>
+</group>
+```
+
+You can also use inline comparison expressions (`==` or `!=`) in `condition` (or `var`):
+
+```xml
+<group id="non_prod_seed" condition="{{ENV}} != 'production'">
+    <sql id="seed_test_users" db="app_db">
+        INSERT INTO users (username, role) VALUES ('test_admin', 'admin');
     </sql>
 </group>
 ```
 
 ---
 
-## 5. Error Handling & Retry Policies
+### Mode B: Atomic Database Transactions (`transaction="true"`)
 
-The `<group>` element supports localized resilience and fault recovery policies:
+When `transaction="true"` (or `tx="true"`) is enabled with `db="..."`, Flow begins a `*sql.Tx` before executing child nodes:
+- **Atomic Commit**: If all child nodes succeed, Flow commits the transaction.
+- **Automatic Rollback**: If any child node fails, panics, or the context times out/cancels, Flow automatically rolls back the transaction.
+- **Nested Transactions (Dialect-Aware Savepoints)**: If a `<group transaction="true" db="X">` is nested inside an outer `<group transaction="true" db="X">`, Flow automatically reuses the outer transaction and issues dialect-aware savepoint commands:
+
+| Database Driver | Savepoint Command | Rollback Command | Release Command |
+| :--- | :--- | :--- | :--- |
+| **PostgreSQL** (`postgres`, `pgx`) | `SAVEPOINT sp_N` | `ROLLBACK TO SAVEPOINT sp_N` | `RELEASE SAVEPOINT sp_N` |
+| **SQLite** (`sqlite`, `sqlite3`) | `SAVEPOINT sp_N` | `ROLLBACK TO SAVEPOINT sp_N` | `RELEASE SAVEPOINT sp_N` |
+| **MySQL / MariaDB** (`mysql`) | `SAVEPOINT sp_N` | `ROLLBACK TO SAVEPOINT sp_N` | `RELEASE SAVEPOINT sp_N` |
+| **Oracle** (`oracle`, `godror`) | `SAVEPOINT sp_N` | `ROLLBACK TO SAVEPOINT sp_N` | — *(Automatic on commit)* |
+| **Microsoft SQL Server** (`sqlserver`, `mssql`) | `SAVE TRANSACTION sp_N` | `ROLLBACK TRANSACTION sp_N` | — *(T-SQL omits release syntax)* |
+
+```xml
+<group id="order_settlement_tx" transaction="true" db="orders_db" timeout="30s">
+    <sql id="debit_account" db="orders_db">
+        UPDATE accounts SET balance = balance - 100 WHERE account_id = {{ACCOUNT_ID}};
+    </sql>
+    <sql id="create_receipt" db="orders_db">
+        INSERT INTO receipts (account_id, amount) VALUES ({{ACCOUNT_ID}}, 100);
+    </sql>
+</group>
+```
+
+---
+
+### Mode C: Session Connection Pinning (`session="true"`) for Temporary Tables
+
+Database engines scope temporary tables (`#Temp` in SQL Server, `CREATE TEMP TABLE` in PostgreSQL/SQLite, `CREATE TEMPORARY TABLE` in MySQL) to the **physical session/connection**. Because `*sql.DB` is a connection pool, separate `<sql>` and `<sql_bulk>` steps normally execute on different pooled connections, causing session-scoped temp tables to disappear between steps.
+
+Setting `session="true"` (or `pin_connection="true"`, `pin_conn="true"`, `sticky="true"`) pins a single `*sql.Conn` for the specified `db` across the entire group:
+- Every child `<sql>`, `<sql_bulk>`, `<foreach>`, `<excel_write>`, and `<kv_bulk>` targeting `db` executes on that same pinned connection.
+- Each statement outside a transaction block **auto-commits immediately**, avoiding long-running transaction locks or transaction log bloat during staging and bulk loads.
+- If another `<group session="true" db="...">` is nested on the same database, Flow reuses the ancestor's pinned connection and only closes/returns the connection to the pool when the outermost owning session group exits.
+
+```xml
+<group id="temp_table_etl" session="true" db="dw_db" timeout="15m">
+    <!-- Step 1: Create session-scoped temp table -->
+    <sql id="create_temp_stage" db="dw_db">
+        CREATE TABLE #StagingSales (
+            SaleID INT,
+            Region VARCHAR(50),
+            Amount DECIMAL(18,2),
+            IsValid BIT DEFAULT 1
+        );
+    </sql>
+
+    <!-- Step 2: Bulk stream from source DB into #StagingSales on the pinned connection -->
+    <sql_bulk id="bulk_load_stage" db="crm_db" target_db="dw_db" target_table="#StagingSales" batch_size="10000">
+        SELECT SaleID, Region, Amount, 1 AS IsValid FROM dbo.RawSales
+    </sql_bulk>
+
+    <!-- Step 3: Scrub data in #StagingSales (auto-commits immediately) -->
+    <sql id="scrub_stage" db="dw_db">
+        UPDATE #StagingSales SET IsValid = 0 WHERE Amount &lt;= 0;
+    </sql>
+
+    <!-- Step 4: Final insert from #StagingSales -->
+    <sql id="publish_clean_sales" db="dw_db">
+        INSERT INTO dbo.FactSales (SaleID, Region, Amount)
+        SELECT SaleID, Region, Amount FROM #StagingSales WHERE IsValid = 1;
+
+        DROP TABLE #StagingSales;
+    </sql>
+</group>
+```
+
+---
+
+### Mode D: Combining `session="true"` with Nested `transaction="true"`
+
+You can nest `<group transaction="true" db="...">` inside `<group session="true" db="...">` (or set both `session="true" transaction="true"` on the same group). When a transaction group starts inside a pinned session for the same database, Flow starts the transaction **directly on the pinned `*sql.Conn`** (`conn.BeginTx(ctx, nil)`), preserving full visibility into any `#Temp` tables created earlier in the session:
 
 ```mermaid
-flowchart LR
-    Step["Child Step Fails"] --> Policy{"on_error"}
-    Policy -- "stop" --> Stop["Rollback Tx &amp; Halt Pipeline"]
-    Policy -- "continue" --> Cont["Rollback Tx &amp; Log Warning<br/>Proceed to Next Node"]
-    Policy -- "retry" --> CountCheck{"Retries Left?"}
-    CountCheck -- "Yes" --> Delay["Sleep retry_interval"] --> Reattempt["Rollback Tx &amp; Re-run Group"]
-    CountCheck -- "No" --> Stop
+sequenceDiagram
+    participant Pool as *sql.DB Pool
+    participant Conn as Pinned *sql.Conn
+    participant Tx as *sql.Tx (on Pinned Conn)
+
+    Note over Pool,Conn: Enter <group session="true" db="dw_db">
+    Pool->>Conn: db.Conn(ctx) — Pin Connection
+    Conn->>Conn: <sql> CREATE TEMP TABLE temp_updates (Auto-Commit)
+    Conn->>Conn: <sql_bulk> Stream rows into temp_updates (Auto-Commit Batches)
+
+    Note over Conn,Tx: Enter Nested <group transaction="true" db="dw_db">
+    Conn->>Tx: conn.BeginTx(ctx, nil)
+    Tx->>Tx: <sql> UPDATE customers FROM temp_updates
+    Tx->>Tx: <sql> INSERT INTO batch_audit SELECT COUNT(*) FROM temp_updates
+    Tx->>Conn: tx.Commit()
+
+    Note over Pool,Conn: Exit <group session="true" db="dw_db">
+    Conn->>Pool: conn.Close() — Return Connection to Pool
 ```
 
-* **`on_error="stop"` (Default)**: Any child failure halts the group, initiates an immediate database rollback, and fails the pipeline.
-* **`on_error="continue"`**: If a child step fails, the group's transaction is rolled back safely, but the pipeline execution continues with the subsequent sibling nodes.
-* **`on_error="retry"`**: When paired with `retry_count="N"` and `retry_interval="Xs"`, transient failures (such as network drops or database deadlocks) trigger an immediate rollback followed by a clean re-execution of the group from the beginning.
-
----
-
-## 6. Conditional Group Execution
-
-Instead of requiring an explicit `<if><then>...</then></if>` construct, `<group>` supports direct conditional attributes:
-
-### 1. Simple Variable Equality Testing (`if_var` + `if_equals`)
 ```xml
-<group id="RunProductionMigrations" if_var="Environment" if_equals="production">
-    <sql db="app_db">ALTER TABLE users ADD COLUMN IF NOT EXISTS verified BOOLEAN DEFAULT FALSE;</sql>
+<group id="staged_publish_session" session="true" db="dw_db">
+    <!-- Outside transaction: fast staging into temp table -->
+    <sql id="create_temp" db="dw_db">
+        CREATE TEMP TABLE temp_updates (id INT, new_status TEXT);
+    </sql>
+    <sql_bulk id="load_temp" db="src_db" target_db="dw_db" target_table="temp_updates">
+        SELECT id, status FROM incoming_events
+    </sql_bulk>
+
+    <!-- Inside transaction on the SAME pinned connection: atomic swap/merge -->
+    <group id="atomic_apply" transaction="true" db="dw_db">
+        <sql id="update_target" db="dw_db">
+            UPDATE customers
+            SET status = u.new_status
+            FROM temp_updates u
+            WHERE customers.id = u.id;
+        </sql>
+        <sql id="audit_batch" db="dw_db">
+            INSERT INTO batch_audit (processed_count)
+            SELECT COUNT(*) FROM temp_updates;
+        </sql>
+    </group>
 </group>
 ```
 
-### 2. Boolean Expressions (`condition`)
-```xml
-<group id="ProcessHighPriority" condition="{{PendingRecords}} > 1000 &amp;&amp; {{DryRun}} == false">
-    <sql db="warehouse_db">INSERT INTO processing_queue SELECT * FROM staging_records;</sql>
-</group>
-```
-
 ---
 
-## 7. Interaction with Loops and Parallelism
+## 4. Interaction with Child Nodes, Loops & Concurrency
+
+### Child Node Routing Priority
+Inside a `session="true"` or `transaction="true"` group, child `<sql>`, `<sql_bulk>` (both as `db` source and `target_db` destination), `<foreach>`, `<excel_write>`, and `<kv_bulk>` nodes targeting the group's `db` automatically resolve their execution handle in the following priority order:
+1. **Active Transaction (`activeTxs`)**: Executes on the active `*sql.Tx` if inside a transaction group for `db`.
+2. **Pinned Session Connection (`activeConns`)**: Executes on the pinned `*sql.Conn` if inside a session group for `db`.
+3. **Database Connection Pool (`*sql.DB`)**: Falls back to standard pooled execution when neither a transaction nor a pinned session is active for `db`.
+
+### Single-Connection Cursor Buffering (`<sql_bulk>` & `<foreach>`)
+Because a single physical database connection (`*sql.Conn` or `*sql.Tx`) can only have one active `*sql.Rows` result cursor open at a time in Go's `database/sql`:
+- **`<sql_bulk>` on Shared Connection**: When `<sql_bulk>` reads and writes on the same database connection (`db == target_db` inside a `session="true"` or `transaction="true"` group), Flow automatically buffers the source rows in memory and closes the source `*sql.Rows` cursor before executing destination batch writes on that connection.
+- **`<foreach>` on Pinned Session or Transaction**: When `<foreach>` executes its driver query on a database with an active transaction or pinned session connection, Flow automatically buffers the driver rows and closes the cursor before running child loop steps on that same session.
 
 ### Loops (`<foreach>`, `<while>`)
-When placed inside `<foreach>` or `<while>`, a `<group transaction="true">` creates, commits, or rolls back an independent transaction **on every individual iteration**:
-* Failure in iteration `N` rolls back only iteration `N`.
-* Preceding iterations remain permanently committed.
-* Subsequent iterations continue according to the loop's error policy.
+When a `<group transaction="true">` or `<group session="true">` is placed *inside* a `<foreach>` or `<while>` loop, Flow starts and finishes an independent transaction or pinned session **per loop iteration**:
+- Failure in iteration `N` rolls back only iteration `N`.
+- Preceding iterations remain permanently committed.
 
 ### Parallel Execution (`<parallel>`)
-When running inside `<parallel max_threads="...">`:
-* Flow provisions a cloned, thread-isolated execution context for each worker branch.
-* If a worker executes `<group transaction="true">`, its transaction is isolated to that worker's dedicated database connection.
-* Concurrent workers never share transaction states or collide on savepoint names.
-
-### High-Throughput Bulk Copy Caution (`<sql_bulk>`)
-> [!WARNING]
-> Do **NOT** wrap high-throughput streaming bulk copy (`<sql_bulk target_table="...">` / `StreamETL`) inside a transaction-enabled `<group transaction="true">`.
-> 
-> SQL Server TDS bulk copy operates using its own internal batch-level commits (`batch_size="10000"`). Wrapping native TDS fast-load streams inside an outer group transaction causes driver command overlap, connection pool exhaustion, and extensive table lock contention.
+Each worker branch inside a `<parallel>` block receives an isolated cloned executor state:
+- Avoid sharing a single `*sql.Conn` or `*sql.Tx` across concurrent goroutines.
+- Place `<group session="true">` or `<group transaction="true">` **inside** each `<parallel>` branch so every concurrent worker pins its own dedicated connection or transaction from the pool.
 
 ---
 
-## 8. Comprehensive Production Examples
+## 5. Production Pipeline Examples
 
-### Example 1: Multi-Step Bank Transfer with Atomic Transaction & Timeout
-Demonstrates debiting one account, crediting another, and writing an audit trail with an enforced 30-second deadline.
+### Example 1: Atomic Financial Transfer with `<assert>` Quality Gate
+Demonstrates debiting one account, verifying affected rows with `<assert>`, crediting the destination account, and recording an immutable ledger entry inside a 30-second atomic transaction.
 
 ```xml
 <pipeline xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
@@ -224,19 +282,18 @@ Demonstrates debiting one account, crediting another, and writing an audit trail
     </databases>
 
     <flow>
-        <!-- Atomic transaction block with 30s timeout -->
         <group id="transfer_funds_txn" transaction="true" db="core_banking" timeout="30s"
                description="Transfers funds atomically between accounts">
             
-            <!-- Step 1: Deduct balance with balance constraint -->
-            <sql id="debit_sender" db="core_banking">
+            <!-- Step 1: Deduct balance and capture affected row count -->
+            <sql id="debit_sender" db="core_banking" output_var="DEBIT_ROWS">
                 UPDATE accounts 
                 SET balance = balance - {{TransferAmount}}, updated_at = NOW()
-                WHERE account_id = {{SenderID}} AND balance >= {{TransferAmount}};
+                WHERE account_id = {{SenderID}} AND balance &gt;= {{TransferAmount}};
             </sql>
 
-            <!-- Step 2: Ensure exactly 1 row was updated -->
-            <assert id="check_debit_applied" var="debit_sender.rows_affected" equals="1"
+            <!-- Step 2: Halt and trigger automatic rollback if 0 rows were updated -->
+            <assert id="check_debit_applied" var="DEBIT_ROWS" equals="1"
                     message="Insufficient funds or invalid sender account ID" on_failure="halt" />
 
             <!-- Step 3: Credit destination account -->
@@ -258,36 +315,57 @@ Demonstrates debiting one account, crediting another, and writing an audit trail
 
 ---
 
-### Example 2: Nested Savepoints (Outer Transaction with Inner Audit Group)
-Demonstrates dialect-aware savepoints. If the nested audit log fails, the inner savepoint rolls back without interrupting the outer order processing.
+### Example 2: Session-Pinned Temp Table Staging & Atomic Merge
+Demonstrates using `session="true"` on SQL Server to create and bulk-populate a `#Temp` table outside a transaction (for minimal logging and fast batch ingestion), followed by a nested `transaction="true"` group on the same pinned connection to atomically apply changes.
 
 ```xml
 <pipeline xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
           xsi:noNamespaceSchemaLocation="https://raw.githubusercontent.com/etl-madness/flow/main/xsd/pipeline.xsd">
     <databases>
-        <database name="store_db" driver="sqlserver"
-                  connection_string="sqlserver://sql.prod.net:1433?database=Store&amp;integrated+security=true" />
+        <database name="erp_db" driver="postgres"
+                  connection_string="postgresql://reader:secret@erp.internal:5432/erp" />
+        <database name="dw_db" driver="sqlserver"
+                  connection_string="sqlserver://dw.internal:1433?database=Warehouse&amp;integrated+security=true" />
     </databases>
 
     <flow>
-        <!-- Root transaction boundary -->
-        <group id="process_order_txn" transaction="true" db="store_db" timeout="1m">
+        <group id="session_staging_workflow" session="true" db="dw_db" timeout="15m"
+               description="Pins a SQL Server session for #StagingInventory and merges atomically">
             
-            <!-- 1. Place order -->
-            <sql id="insert_order" db="store_db">
-                INSERT INTO orders (customer_id, total_amount) VALUES (4096, 299.95);
+            <!-- 1. Create #StagingInventory on the pinned connection (auto-commits) -->
+            <sql id="create_staging_temp" db="dw_db">
+                CREATE TABLE #StagingInventory (
+                    SKU VARCHAR(64) NOT NULL,
+                    WarehouseCode VARCHAR(32) NOT NULL,
+                    OnHandQty INT NOT NULL
+                );
             </sql>
 
-            <!-- 2. Nested transaction: uses T-SQL 'SAVE TRANSACTION savepoint_1' -->
-            <group id="nested_notification_log" transaction="true" db="store_db" on_error="continue">
-                <sql id="log_notification" db="store_db">
-                    INSERT INTO notification_queue (order_id, channel) VALUES (4096, 'EMAIL');
+            <!-- 2. Stream rows from PostgreSQL into SQL Server #StagingInventory -->
+            <sql_bulk id="stream_erp_to_temp"
+                      db="erp_db"
+                      target_db="dw_db"
+                      target_table="#StagingInventory"
+                      batch_size="10000">
+                SELECT sku, warehouse_code, on_hand_qty FROM inventory_snapshot;
+            </sql_bulk>
+
+            <!-- 3. Atomic transaction on the same pinned *sql.Conn -->
+            <group id="atomic_warehouse_swap" transaction="true" db="dw_db" timeout="2m">
+                <sql id="delete_Negative_qty" db="dw_db">
+                    DELETE FROM #StagingInventory WHERE OnHandQty &lt; 0;
+                </sql>
+
+                <sql id="upsert_fact_inventory" db="dw_db">
+                    DELETE FROM dbo.FactInventory;
+                    INSERT INTO dbo.FactInventory (SKU, WarehouseCode, OnHandQty)
+                    SELECT SKU, WarehouseCode, OnHandQty FROM #StagingInventory;
                 </sql>
             </group>
 
-            <!-- 3. Finalize order status -->
-            <sql id="finalize_order" db="store_db">
-                UPDATE customer_profiles SET last_order_date = GETDATE() WHERE id = 4096;
+            <!-- 4. Clean up temp table before releasing connection back to pool -->
+            <sql id="drop_staging_temp" db="dw_db">
+                DROP TABLE #StagingInventory;
             </sql>
         </group>
     </flow>
@@ -296,107 +374,8 @@ Demonstrates dialect-aware savepoints. If the nested audit log fails, the inner 
 
 ---
 
-### Example 3: Conditional Execution with Error Retries
-Demonstrates verifying an external API health check before running a group that retries up to 3 times on transient database deadlocks.
-
-```xml
-<pipeline xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-          xsi:noNamespaceSchemaLocation="https://raw.githubusercontent.com/etl-madness/flow/main/xsd/pipeline.xsd">
-    <variables>
-        <variable name="ApiHealthy" type="bool" value="false" />
-    </variables>
-
-    <databases>
-        <database name="stage_db" driver="postgres"
-                  connection_string="postgresql://app:pass@localhost:5432/staging" />
-    </databases>
-
-    <flow>
-        <!-- Probe upstream API -->
-        <http_client id="check_upstream" method="GET" url="https://api.partner.com/health" status_into="HttpStatus" />
-        
-        <script id="eval_status" language="go">
-            <![CDATA[
-            package main
-            import "host/vars"
-            func main() {
-                if vars.GetInt("HttpStatus") == 200 {
-                    vars.SetBool("ApiHealthy", true)
-                }
-            }
-            ]]>
-        </script>
-
-        <!-- Conditional group with retry policy -->
-        <group id="pull_partner_data"
-               if_var="ApiHealthy" if_equals="true"
-               on_error="retry" retry_count="3" retry_interval="4s"
-               transaction="true" db="stage_db">
-            
-            <http_client id="fetch_orders" method="GET" url="https://api.partner.com/v1/orders" into="OrdersJson" />
-            
-            <sql id="stage_raw_orders" db="stage_db">
-                INSERT INTO staging_raw_orders (payload, received_at)
-                VALUES ('{{OrdersJson}}', NOW());
-            </sql>
-        </group>
-    </flow>
-</pipeline>
-```
-
----
-
-### Example 4: Transactional Loop inside `<foreach>`
-Demonstrates streaming active user subscriptions and applying billing renewals, committing each user in its own independent transaction.
-
-```xml
-<pipeline xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-          xsi:noNamespaceSchemaLocation="https://raw.githubusercontent.com/etl-madness/flow/main/xsd/pipeline.xsd">
-    <databases>
-        <database name="billing_db" driver="mysql"
-                  connection_string="root:secret@tcp(127.0.0.1:3306)/billing?parseTime=true" />
-    </databases>
-
-    <flow>
-        <!-- Loop driver: streams user IDs needing renewal -->
-        <foreach id="renew_subscribers" db="billing_db">
-            <![CDATA[
-            SELECT user_id, plan_cost, plan_tier 
-            FROM subscriptions 
-            WHERE status = 'active' AND next_billing_date <= CURDATE();
-            ]]>
-            
-            <!-- Each row executes in its own isolated transaction -->
-            <group id="apply_user_renewal" transaction="true" db="billing_db" timeout="15s" on_error="continue">
-                <sql id="deduct_user_credits" db="billing_db">
-                    UPDATE user_wallets 
-                    SET balance = balance - {{plan_cost}} 
-                    WHERE user_id = {{user_id}} AND balance >= {{plan_cost}};
-                </sql>
-
-                <assert id="check_wallet_deducted" var="deduct_user_credits.rows_affected" equals="1"
-                        message="User {{user_id}} has insufficient credit balance" />
-
-                <sql id="advance_billing_cycle" db="billing_db">
-                    UPDATE subscriptions 
-                    SET next_billing_date = DATE_ADD(CURDATE(), INTERVAL 1 MONTH)
-                    WHERE user_id = {{user_id}};
-                </sql>
-
-                <sql id="log_billing_history" db="billing_db">
-                    INSERT INTO billing_events (user_id, amount, tier, billed_at)
-                    VALUES ({{user_id}}, {{plan_cost}}, '{{plan_tier}}', NOW());
-                </sql>
-            </group>
-        </foreach>
-    </flow>
-</pipeline>
-```
-
----
-
-### Example 5: Concurrent Isolated Transactions in `<parallel>`
-Demonstrates running multi-regional partition archiving concurrently across 3 worker threads, each maintaining an isolated transaction.
+### Example 3: Concurrent Isolated Sessions & Transactions in `<parallel>`
+Demonstrates running multi-regional partition archiving concurrently across 3 worker threads, each maintaining an isolated transaction on its respective database.
 
 ```xml
 <pipeline xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
