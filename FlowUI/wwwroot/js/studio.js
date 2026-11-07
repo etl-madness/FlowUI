@@ -1,4 +1,5 @@
 window.flowStudio = {
+    _mermaidRenderSeq: 0,
     getSavedTheme: function () {
         try {
             const saved = localStorage.getItem("flow_studio_theme");
@@ -10,13 +11,13 @@ window.flowStudio = {
             return "";
         }
     },
-    saveTheme: function (themeId) {
+    saveTheme: async function (themeId) {
         try {
             if (themeId) {
                 localStorage.setItem("flow_studio_theme", themeId);
                 document.documentElement.setAttribute("data-theme", themeId);
-                this.renderMermaid(".doc-guide-body", true);
-                this.renderMermaid("#handbook-content-scroll", true);
+                await this.renderMermaid(".doc-guide-body", true);
+                await this.renderMermaid("#handbook-content-scroll", true);
             }
         } catch {
             // Ignore storage errors in restricted browsers
@@ -80,7 +81,6 @@ window.flowStudio = {
             });
         };
 
-        let index = 0;
         for (const el of blocks) {
             const renderedTheme = el.getAttribute("data-mermaid-rendered");
             if (!forceRerender && renderedTheme === mermaidTheme && el.querySelector("svg")) {
@@ -99,7 +99,7 @@ window.flowStudio = {
             }
 
             try {
-                const renderId = "mermaid-doc-" + Date.now() + "-" + (++index) + "-" + Math.random().toString(36).slice(2, 7);
+                const renderId = "mermaid-doc-" + Date.now() + "-" + (++this._mermaidRenderSeq);
                 const result = await window.mermaid.render(renderId, graphDefinition);
                 el.innerHTML = result.svg;
                 el.setAttribute("data-mermaid-rendered", mermaidTheme);
@@ -242,7 +242,9 @@ window.flowStudio = {
         if (dotNetHelper && this._lastReportedHandbookKey !== activeKey) {
             this._lastReportedHandbookKey = activeKey;
             try {
-                dotNetHelper.invokeMethodAsync("OnScrollActiveKeyChanged", activeKey, activeHeadingId);
+                dotNetHelper.invokeMethodAsync("OnScrollActiveKeyChanged", activeKey, activeHeadingId).catch(function () {
+                    // Ignore if circuit disposed
+                });
             } catch {
                 // Ignore if circuit disposed
             }

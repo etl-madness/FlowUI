@@ -184,7 +184,7 @@
             var file = e.File;
             if (file is null) return;
 
-            const long maxBytes = 10 * 1024 * 1024; // 10 MB limit
+            const long maxBytes = 5 * 1024 * 1024; // 5 MB limit (within Sonar S5693 8 MB threshold)
             await using var stream = file.OpenReadStream(maxBytes);
             using var reader = new StreamReader(stream);
             var content = await reader.ReadToEndAsync();
@@ -224,7 +224,7 @@
             {
                 DtdProcessing = DtdProcessing.Prohibit,
                 XmlResolver = null,
-                MaxCharactersInDocument = 10 * 1024 * 1024
+                MaxCharactersInDocument = 5 * 1024 * 1024
             };
             using var strReader = new StringReader(unwrappedXml);
             using var xmlReader = XmlReader.Create(strReader, settings);

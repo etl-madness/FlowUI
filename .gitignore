@@ -384,3 +384,5 @@ secrets.json
 private-docker-compose.override.yml
 private-docker-compose.yml
 .private/
+/sonar-project.properties
+/run-sonarqube.ps1

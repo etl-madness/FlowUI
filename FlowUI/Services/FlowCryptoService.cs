@@ -368,7 +368,7 @@ public sealed class FlowCryptoService
                 rsa.ImportFromEncryptedPem(pem, passphrase);
             else
                 rsa.ImportFromPem(pem);
-            return rsa.SignData(dataToSign, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+            return rsa.SignData(dataToSign, HashAlgorithmName.SHA256, RSASignaturePadding.Pss);
         }
     }
 
@@ -383,7 +383,7 @@ public sealed class FlowCryptoService
             using var cert = X509Certificate2.CreateFromPem(keyOrCertPem);
             using var rsa = cert.GetRSAPublicKey();
             if (rsa is not null)
-                return rsa.VerifyData(dataBytes, sigBytes, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+                return rsa.VerifyData(dataBytes, sigBytes, HashAlgorithmName.SHA256, RSASignaturePadding.Pss);
             using var ecdsa = cert.GetECDsaPublicKey();
             if (ecdsa is not null)
                 return ecdsa.VerifyData(dataBytes, sigBytes, HashAlgorithmName.SHA256, DSASignatureFormat.Rfc3279DerSequence);
@@ -394,7 +394,7 @@ public sealed class FlowCryptoService
         {
             using var rsa = RSA.Create();
             rsa.ImportFromPem(keyOrCertPem);
-            return rsa.VerifyData(dataBytes, sigBytes, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+            return rsa.VerifyData(dataBytes, sigBytes, HashAlgorithmName.SHA256, RSASignaturePadding.Pss);
         }
         catch
         {
@@ -463,7 +463,7 @@ public sealed class FlowCryptoService
 
             if (req.GenerateCert)
             {
-                var certReq = new CertificateRequest($"CN={cn}, O=Flow", rsa, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+                var certReq = new CertificateRequest($"CN={cn}, O=Flow", rsa, HashAlgorithmName.SHA256, RSASignaturePadding.Pss);
                 certReq.CertificateExtensions.Add(new X509BasicConstraintsExtension(true, false, 0, true));
                 certReq.CertificateExtensions.Add(new X509KeyUsageExtension(
                     X509KeyUsageFlags.DigitalSignature | X509KeyUsageFlags.KeyEncipherment | X509KeyUsageFlags.KeyCertSign, false));
@@ -515,7 +515,7 @@ public sealed class FlowCryptoService
         {
             using var rsa = RSA.Create();
             rsa.ImportFromPem(pem);
-            sigBytes = rsa.SignData(dataToSign, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+            sigBytes = rsa.SignData(dataToSign, HashAlgorithmName.SHA256, RSASignaturePadding.Pss);
             sigFormat = "OPENSSL-RSA-SHA256";
         }
 
@@ -635,7 +635,7 @@ public sealed class FlowCryptoService
                 using var rsa = cert.GetRSAPublicKey();
                 if (rsa is not null)
                 {
-                    valid = rsa.VerifyData(dataBytes, sigBytes, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+                    valid = rsa.VerifyData(dataBytes, sigBytes, HashAlgorithmName.SHA256, RSASignaturePadding.Pss);
                     alg = "RSA-SHA256";
                 }
                 else
@@ -654,7 +654,7 @@ public sealed class FlowCryptoService
                 {
                     using var rsa = RSA.Create();
                     rsa.ImportFromPem(keyOrCertPem);
-                    valid = rsa.VerifyData(dataBytes, sigBytes, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+                    valid = rsa.VerifyData(dataBytes, sigBytes, HashAlgorithmName.SHA256, RSASignaturePadding.Pss);
                     alg = "RSA-SHA256";
                 }
                 catch
