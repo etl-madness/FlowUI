@@ -4,6 +4,7 @@ C:\Users\U00001\source\repos\etl-madness\flowUI\FlowUI.Tests\DocsServiceTests.cs
 C:\Users\U00001\source\repos\etl-madness\flowUI\FlowUI.Tests\FlowApiClientTests.cs
 C:\Users\U00001\source\repos\etl-madness\flowUI\FlowUI.Tests\FlowCryptoServiceTests.cs
 C:\Users\U00001\source\repos\etl-madness\flowUI\FlowUI.Tests\ModelsTests.cs
+C:\Users\U00001\source\repos\etl-madness\flowUI\FlowUI.Tests\RazorComponentsTests.cs
 C:\Users\U00001\source\repos\etl-madness\flowUI\FlowUI.Tests\StudioStateServiceTests.cs
 C:\Users\U00001\source\repos\etl-madness\flowUI\FlowUI.Tests\XmlGeneratorServiceTests.cs
 C:\Users\U00001\source\repos\etl-madness\flowUI\FlowUI.Tests\XmlImporterServiceTests.cs

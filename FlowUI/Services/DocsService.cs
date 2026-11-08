@@ -137,7 +137,7 @@ public sealed partial class DocsService
     [GeneratedRegex(@"<(\/?([a-zA-Z_][\w-]*)(?:\s[^<>]*)?\/?)>", RegexOptions.CultureInvariant, 2000)]
     private static partial Regex XmlTagInMermaidRegex();
 
-    [GeneratedRegex(@"<h([23])\s+id=""([^""]+)""([^>]*)>([\s\S]*?)</h\1>", RegexOptions.CultureInvariant | RegexOptions.IgnoreCase, 2000)]
+    [GeneratedRegex(@"<h([23])\s+id=""([^""]+)""([^>]*)>([\s\S]*?)</h[23]>", RegexOptions.CultureInvariant | RegexOptions.IgnoreCase, 2000)]
     private static partial Regex HeadingTagRegex();
 
     [GeneratedRegex(@"<[^>]+>", RegexOptions.CultureInvariant, 2000)]

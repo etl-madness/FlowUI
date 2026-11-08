@@ -165,9 +165,9 @@
   </ServerSettings>
   <LocalSettings>
     <Property Name="sonar.host.url">http://localhost:9000</Property>
-    <Property Name="sonar.cs.vstest.reportsPaths">C:\Users\U00001\source\repos\etl-madness\flowUI\TestResults\20261108-174201\**\*.trx</Property>
-    <Property Name="sonar.cs.opencover.reportsPaths">C:\Users\U00001\source\repos\etl-madness\flowUI\TestResults\20261108-174201\**\coverage.opencover.xml</Property>
-    <Property Name="sonar.exclusions">**/*.min.js,**/wwwroot/lib/**,**/node_modules/**,C:\Users\U00001\source\repos\etl-madness\flowUI\TestResults\20261108-174201\**\coverage.opencover.xml</Property>
+    <Property Name="sonar.cs.vstest.reportsPaths">C:\Users\U00001\source\repos\etl-madness\flowUI\TestResults\20261108-181534\**\*.trx</Property>
+    <Property Name="sonar.cs.opencover.reportsPaths">C:\Users\U00001\source\repos\etl-madness\flowUI\TestResults\20261108-181534\**\coverage.opencover.xml</Property>
+    <Property Name="sonar.exclusions">**/*.min.js,**/wwwroot/lib/**,**/node_modules/**,C:\Users\U00001\source\repos\etl-madness\flowUI\TestResults\20261108-181534\**\coverage.opencover.xml</Property>
   </LocalSettings>
   <ScannerOptsSettings />
   <AnalyzersSettings>

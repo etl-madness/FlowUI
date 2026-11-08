@@ -3,11 +3,11 @@
   <Settings>
     <Setting>
       <Key>sonar.cs.vstest.reportsPaths</Key>
-      <Value>C:\Users\U00001\source\repos\etl-madness\flowUI\TestResults\20261108-174201\**\*.trx</Value>
+      <Value>C:\Users\U00001\source\repos\etl-madness\flowUI\TestResults\20261108-181534\**\*.trx</Value>
     </Setting>
     <Setting>
       <Key>sonar.cs.opencover.reportsPaths</Key>
-      <Value>C:\Users\U00001\source\repos\etl-madness\flowUI\TestResults\20261108-174201\**\coverage.opencover.xml</Value>
+      <Value>C:\Users\U00001\source\repos\etl-madness\flowUI\TestResults\20261108-181534\**\coverage.opencover.xml</Value>
     </Setting>
     <Setting>
       <Key>sonar.cs.ignoreHeaderComments</Key>

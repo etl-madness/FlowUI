@@ -79,7 +79,7 @@ public class AuthServicesTests
         Assert.False(autoFail.Succeeded);
 
         // Interactive login with providerOverride succeeds
-        IAuthenticationService iAuth = authService;
+        UiAuthenticationService iAuth = authService;
         var loginRes = await iAuth.LoginAsync("alice", "pw123", "ApiBasic");
         Assert.True(loginRes.Succeeded);
         Assert.True(authService.IsAuthenticated);
