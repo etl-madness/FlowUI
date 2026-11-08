@@ -10,13 +10,15 @@ namespace FlowUI.Services.Auth;
 /// Resolves the active Windows / OS identity (DOMAIN\user) and all AD / Windows group memberships (DOMAIN\group),
 /// and authenticates against go-flowAPI ([dbo].[flow_api_users]). Also supports optional Windows password entry.
 /// </summary>
-public class WindowsIntegratedUiAuthProvider : IUiAuthProvider
+public partial class WindowsIntegratedUiAuthProvider : IUiAuthProvider
 {
     private const int LOGON32_LOGON_NETWORK = 3;
     private const int LOGON32_PROVIDER_DEFAULT = 0;
+    private static readonly char[] GroupSeparators = [',', ';', '\n', '\r'];
 
-    [DllImport("advapi32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
-    private static extern bool LogonUser(
+    [LibraryImport("advapi32.dll", EntryPoint = "LogonUserW", SetLastError = true, StringMarshalling = StringMarshalling.Utf16)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool LogonUser(
         string lpszUsername,
         string? lpszDomain,
         string lpszPassword,
@@ -24,8 +26,9 @@ public class WindowsIntegratedUiAuthProvider : IUiAuthProvider
         int dwLogonProvider,
         out IntPtr phToken);
 
-    [DllImport("kernel32.dll", SetLastError = true)]
-    private static extern bool CloseHandle(IntPtr hObject);
+    [LibraryImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool CloseHandle(IntPtr hObject);
 
     protected readonly FlowApiClient _apiClient;
     protected readonly IHttpContextAccessor _httpContextAccessor;
@@ -147,7 +150,7 @@ public class WindowsIntegratedUiAuthProvider : IUiAuthProvider
         var envGroups = Environment.GetEnvironmentVariable("FLOW_WINDOWS_GROUPS");
         if (!string.IsNullOrWhiteSpace(envGroups))
         {
-            foreach (var g in envGroups.Split(new[] { ',', ';', '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            foreach (var g in envGroups.Split(GroupSeparators, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
             {
                 if (!string.IsNullOrWhiteSpace(g))
                 {

@@ -41,7 +41,10 @@ public sealed class FlowApiPassthroughAuthProvider : IUiAuthProvider
         try
         {
             using var client = _httpClientFactory.CreateClient();
-            client.BaseAddress = new Uri(AppConfig.ApiBaseUrl.TrimEnd('/') + "/");
+            if (!string.IsNullOrWhiteSpace(AppConfig.ApiBaseUrl))
+            {
+                client.BaseAddress = new Uri(AppConfig.ApiBaseUrl.TrimEnd('/') + "/");
+            }
             client.Timeout = TimeSpan.FromSeconds(10);
             client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Basic", base64Token);
 

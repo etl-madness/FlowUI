@@ -669,10 +669,7 @@
         }
         catch (Exception ex)
         {
-            sw.Stop();
-            _lastStatus = "FAILED";
-            AppendConsole($"❌ Execution Exception: {ex.Message}");
-            await Studio.LogEventAsync("RUNNER", "EXECUTE_SYNC", "pipeline", req.PipelineName, "ERROR", sw.ElapsedMilliseconds, ex.Message);
+            await HandleExecutionExceptionAsync(sw, "EXECUTE_SYNC", req.PipelineName, "Execution", ex);
         }
         finally
         {
@@ -778,16 +775,21 @@
         }
         catch (Exception ex)
         {
-            sw.Stop();
-            _lastStatus = "FAILED";
-            AppendConsole($"❌ Stream Exception: {ex.Message}");
-            await Studio.LogEventAsync("RUNNER", "EXECUTE_STREAM", "pipeline", req.PipelineName, "ERROR", sw.ElapsedMilliseconds, ex.Message);
+            await HandleExecutionExceptionAsync(sw, "EXECUTE_STREAM", req.PipelineName, "Stream", ex);
         }
         finally
         {
             _isRunning = false;
             await InvokeAsync(StateHasChanged);
         }
+    }
+
+    private async Task HandleExecutionExceptionAsync(Stopwatch sw, string action, string? pipelineName, string label, Exception ex)
+    {
+        sw.Stop();
+        _lastStatus = "FAILED";
+        AppendConsole($"❌ {label} Exception: {ex.Message}");
+        await Studio.LogEventAsync("RUNNER", action, "pipeline", pipelineName, "ERROR", sw.ElapsedMilliseconds, ex.Message);
     }
 
     private void AppendConsole(string line)

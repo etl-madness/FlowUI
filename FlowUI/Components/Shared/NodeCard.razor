@@ -5,79 +5,12 @@
 {
     <div class="node-card node-card-container section-@Node.Section">
         <div class="node-container-top">
-            <div class="node-info">
-                <div class="node-header-line">
-                    <span class="node-type-badge">&lt;@Node.NodeType&gt;</span>
-                    @if (!string.IsNullOrEmpty(Node.DisplayName))
-                    {
-                        <span class="node-name-title">@Node.DisplayName</span>
-                    }
-                </div>
-                @RenderAttributes()
-            </div>
-            @RenderActionButtons()
+            @RenderNodeHeader(includeContent: false)
         </div>
 
         <div class="branch-split-grid">
-            @{
-                var thenBranch = Node.GetThenBranch();
-                var elseBranch = Node.GetElseBranch();
-            }
-            @if (thenBranch is not null)
-            {
-                <div class="branch-box branch-then">
-                    <div class="branch-header">
-                        <span style="color:var(--success);">✔ THEN Branch (@thenBranch.Children.Count)</span>
-                        @if (CanModify)
-                        {
-                            <button type="button" class="btn btn-sm" @onclick='() => Studio.OpenComponentPickerModal(thenBranch.Id, $"{Node.DisplayName} → THEN")'>
-                                + Add Step
-                            </button>
-                        }
-                    </div>
-                    <div class="branch-children">
-                        @if (thenBranch.Children.Count == 0)
-                        {
-                            <div class="empty-placeholder" style="padding:8px;">No THEN steps</div>
-                        }
-                        else
-                        {
-                            @foreach (var child in thenBranch.Children.OrderBy(c => c.SequenceOrder))
-                            {
-                                <NodeCard Node="child" />
-                            }
-                        }
-                    </div>
-                </div>
-            }
-
-            @if (elseBranch is not null)
-            {
-                <div class="branch-box branch-else">
-                    <div class="branch-header">
-                        <span style="color:var(--warning);">✘ ELSE Branch (@elseBranch.Children.Count)</span>
-                        @if (CanModify)
-                        {
-                            <button type="button" class="btn btn-sm" @onclick='() => Studio.OpenComponentPickerModal(elseBranch.Id, $"{Node.DisplayName} → ELSE")'>
-                                + Add Step
-                            </button>
-                        }
-                    </div>
-                    <div class="branch-children">
-                        @if (elseBranch.Children.Count == 0)
-                        {
-                            <div class="empty-placeholder" style="padding:8px;">No ELSE steps</div>
-                        }
-                        else
-                        {
-                            @foreach (var child in elseBranch.Children.OrderBy(c => c.SequenceOrder))
-                            {
-                                <NodeCard Node="child" />
-                            }
-                        }
-                    </div>
-                </div>
-            }
+            @RenderIfBranch(Node.GetThenBranch(), "branch-then", "var(--success)", "✔ THEN", "THEN")
+            @RenderIfBranch(Node.GetElseBranch(), "branch-else", "var(--warning)", "✘ ELSE", "ELSE")
         </div>
     </div>
 }
@@ -85,17 +18,7 @@ else if (IsContainerNode)
 {
     <div class="node-card node-card-container section-@Node.Section">
         <div class="node-container-top">
-            <div class="node-info">
-                <div class="node-header-line">
-                    <span class="node-type-badge">&lt;@Node.NodeType&gt;</span>
-                    @if (!string.IsNullOrEmpty(Node.DisplayName))
-                    {
-                        <span class="node-name-title">@Node.DisplayName</span>
-                    }
-                </div>
-                @RenderAttributes()
-            </div>
-            @RenderActionButtons()
+            @RenderNodeHeader(includeContent: false)
         </div>
 
         <div class="branch-box" style="margin-top:10px; border-left:3px solid var(--accent);">
@@ -109,17 +32,7 @@ else if (IsContainerNode)
                 }
             </div>
             <div class="branch-children">
-                @if (Node.Children.Count == 0)
-                {
-                    <div class="empty-placeholder" style="padding:8px;">No child steps inside &lt;@Node.NodeType&gt;</div>
-                }
-                else
-                {
-                    @foreach (var child in Node.Children.OrderBy(c => c.SequenceOrder))
-                    {
-                        <NodeCard Node="child" />
-                    }
-                }
+                @RenderChildNodes(Node.Children, $"No child steps inside <{Node.NodeType}>")
             </div>
         </div>
     </div>
@@ -127,21 +40,7 @@ else if (IsContainerNode)
 else
 {
     <div class="node-card section-@Node.Section">
-        <div class="node-info">
-            <div class="node-header-line">
-                <span class="node-type-badge">&lt;@Node.NodeType&gt;</span>
-                @if (!string.IsNullOrEmpty(Node.DisplayName))
-                {
-                    <span class="node-name-title">@Node.DisplayName</span>
-                }
-            </div>
-            @RenderAttributes()
-            @if (!string.IsNullOrWhiteSpace(Node.ContentText))
-            {
-                <div class="node-content-preview">@Node.ContentText</div>
-            }
-        </div>
-        @RenderActionButtons()
+        @RenderNodeHeader(includeContent: true)
     </div>
 }
 
@@ -158,6 +57,61 @@ else
 
     private bool CanModify => Auth.CurrentPermissions.CanUpdate || Auth.CurrentPermissions.CanCreate;
     private bool CanDelete => Auth.CurrentPermissions.CanDelete || Auth.CurrentPermissions.CanUpdate;
+
+    private RenderFragment RenderNodeHeader(bool includeContent) => __builder =>
+    {
+        <div class="node-info">
+            <div class="node-header-line">
+                <span class="node-type-badge">&lt;@Node.NodeType&gt;</span>
+                @if (!string.IsNullOrEmpty(Node.DisplayName))
+                {
+                    <span class="node-name-title">@Node.DisplayName</span>
+                }
+            </div>
+            @RenderAttributes()
+            @if (includeContent && !string.IsNullOrWhiteSpace(Node.ContentText))
+            {
+                <div class="node-content-preview">@Node.ContentText</div>
+            }
+        </div>
+        @RenderActionButtons()
+    };
+
+    private RenderFragment RenderIfBranch(PipelineNode? branch, string branchClass, string color, string labelPrefix, string branchKey) => __builder =>
+    {
+        if (branch is not null)
+        {
+            <div class="branch-box @branchClass">
+                <div class="branch-header">
+                    <span style="color:@color;">@labelPrefix Branch (@branch.Children.Count)</span>
+                    @if (CanModify)
+                    {
+                        <button type="button" class="btn btn-sm" @onclick='() => Studio.OpenComponentPickerModal(branch.Id, $"{Node.DisplayName} → {branchKey}")'>
+                            + Add Step
+                        </button>
+                    }
+                </div>
+                <div class="branch-children">
+                    @RenderChildNodes(branch.Children, $"No {branchKey} steps")
+                </div>
+            </div>
+        }
+    };
+
+    private RenderFragment RenderChildNodes(List<PipelineNode> children, string emptyMessage) => __builder =>
+    {
+        if (children.Count == 0)
+        {
+            <div class="empty-placeholder" style="padding:8px;">@emptyMessage</div>
+        }
+        else
+        {
+            foreach (var child in children.OrderBy(c => c.SequenceOrder))
+            {
+                <NodeCard Node="child" />
+            }
+        }
+    };
 
     private RenderFragment RenderAttributes() => __builder =>
     {
@@ -181,24 +135,12 @@ else
     private RenderFragment RenderActionButtons() => __builder =>
     {
         <div class="node-actions">
-            <button type="button" class="btn btn-sm btn-primary" title="Edit Node Attributes &amp; Script/SQL" @onclick="() => Studio.OpenEditNodeModal(Node)">
-                ✎ Edit
-            </button>
-            <button type="button" class="btn btn-sm" title="Component Guide" @onclick="() => Studio.OpenDocModal(Node.NodeType)">
-                📖
-            </button>
-            <button type="button" class="btn btn-sm" title="Move Up" disabled="@(!CanModify)" @onclick="() => Studio.MoveNodeOrderAsync(Node.Id, -1)">
-                ↑
-            </button>
-            <button type="button" class="btn btn-sm" title="Move Down" disabled="@(!CanModify)" @onclick="() => Studio.MoveNodeOrderAsync(Node.Id, 1)">
-                ↓
-            </button>
-            <button type="button" class="btn btn-sm" title="Duplicate Node" disabled="@(!CanModify)" @onclick="() => Studio.DuplicateNodeAsync(Node)">
-                ⧉
-            </button>
-            <button type="button" class="btn btn-sm btn-danger" title="Delete Node" disabled="@(!CanDelete)" @onclick="() => Studio.DeleteNodeAsync(Node.Id)">
-                ✕
-            </button>
+            <button type="button" class="btn btn-sm btn-primary" title="Edit Node Attributes &amp; Script/SQL" @onclick="() => Studio.OpenEditNodeModal(Node)">✎ Edit</button>
+            <button type="button" class="btn btn-sm" title="Component Guide" @onclick="() => Studio.OpenDocModal(Node.NodeType)">📖</button>
+            <button type="button" class="btn btn-sm" title="Move Up" disabled="@(!CanModify)" @onclick="() => Studio.MoveNodeOrderAsync(Node.Id, -1)">↑</button>
+            <button type="button" class="btn btn-sm" title="Move Down" disabled="@(!CanModify)" @onclick="() => Studio.MoveNodeOrderAsync(Node.Id, 1)">↓</button>
+            <button type="button" class="btn btn-sm" title="Duplicate Node" disabled="@(!CanModify)" @onclick="() => Studio.DuplicateNodeAsync(Node)">⧉</button>
+            <button type="button" class="btn btn-sm btn-danger" title="Delete Node" disabled="@(!CanDelete)" @onclick="() => Studio.DeleteNodeAsync(Node.Id)">✕</button>
         </div>
     };
 

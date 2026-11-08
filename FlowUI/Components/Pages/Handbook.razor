@@ -16,18 +16,7 @@
         </div>
 
         <div style="display:flex; align-items:center; gap:10px; flex:1; max-width:520px; margin:0 16px;">
-            <div class="handbook-search-wrapper" style="width:100%;">
-                <span class="handbook-search-icon">🔍</span>
-                <input type="text"
-                       class="handbook-search-input"
-                       placeholder="Search all components, XML tags, attributes, SQL, variables, templates..."
-                       value="@_searchQuery"
-                       @oninput="OnSearchInput" />
-                @if (!string.IsNullOrWhiteSpace(_searchQuery))
-                {
-                    <button type="button" class="handbook-search-clear" title="Clear search" @onclick="ClearSearch">✕</button>
-                }
-            </div>
+            @RenderSearchBox("Search all components, XML tags, attributes, SQL, variables, templates...", "Clear search", "width:100%;")
         </div>
 
         <div class="header-right">
@@ -53,18 +42,7 @@
         <!-- Left Tree Navigation Panel -->
         <aside class="handbook-sidebar">
             <div class="handbook-sidebar-controls">
-                <div class="handbook-search-wrapper">
-                    <span class="handbook-search-icon">🔍</span>
-                    <input type="text"
-                           class="handbook-search-input"
-                           placeholder="Filter tree &amp; guides..."
-                           value="@_searchQuery"
-                           @oninput="OnSearchInput" />
-                    @if (!string.IsNullOrWhiteSpace(_searchQuery))
-                    {
-                        <button type="button" class="handbook-search-clear" title="Clear filter" @onclick="ClearSearch">✕</button>
-                    }
-                </div>
+                @RenderSearchBox("Filter tree & guides...", "Clear filter", null)
 
                 <div class="handbook-tree-toolbar">
                     <span>@FilteredGroupCount Categories · @FilteredItemCount Items</span>
@@ -538,6 +516,18 @@
             }
         }
     }
+
+    private RenderFragment RenderSearchBox(string placeholder, string clearTitle, string? wrapperStyle) => __builder =>
+    {
+        <div class="handbook-search-wrapper" style="@wrapperStyle">
+            <span class="handbook-search-icon">🔍</span>
+            <input type="text" class="handbook-search-input" placeholder="@placeholder" value="@_searchQuery" @oninput="OnSearchInput" />
+            @if (!string.IsNullOrWhiteSpace(_searchQuery))
+            {
+                <button type="button" class="handbook-search-clear" title="@clearTitle" @onclick="ClearSearch">✕</button>
+            }
+        </div>
+    };
 
     private static string GetShortItemLabel(HandbookItem item)
     {

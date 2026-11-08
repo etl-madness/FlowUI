@@ -62,74 +62,9 @@
         <div class="canvas-toolbar" style="flex-direction:column; align-items:stretch; gap:8px; padding:10px 16px;">
             <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap;">
                 <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
-                    <!-- 1. Database Pipeline Selector -->
-                    <div style="display:flex; align-items:center; gap:4px;">
-                        <label style="font-weight:700; font-size:0.76rem; color:@(IsPipelineArtifact ? "var(--accent)" : "var(--text-muted)"); white-space:nowrap;">
-                            🔀 Pipeline (@Studio.Pipelines.Count):
-                        </label>
-                        <select class="form-control"
-                                style="width:185px; border-color:@(IsPipelineArtifact && Studio.CurrentDraft.ApiArtifactId.HasValue ? "var(--accent)" : "var(--border)");"
-                                value="@EffectivePipelineId"
-                                @onchange="OnSelectPipelineFromDbAsync">
-                            <option value="">-- Select DB Pipeline --</option>
-                            @foreach (var p in Studio.Pipelines)
-                            {
-                                <option value="@p.Id">@p.Name (#@p.Id)@(p.Encrypted ? " 🔒" : "")@(p.Signed ? " ✍️" : "")</option>
-                            }
-                        </select>
-                        <button type="button" class="btn btn-sm"
-                                disabled="@(string.IsNullOrEmpty(EffectivePipelineId))"
-                                @onclick="EditSelectedPipelineFromDbAsync"
-                                title="Load selected Pipeline from database into designer for editing">
-                            ✎ Edit
-                        </button>
-                    </div>
-
-                    <!-- 2. Database Config Selector -->
-                    <div style="display:flex; align-items:center; gap:4px;">
-                        <label style="font-weight:700; font-size:0.76rem; color:@(IsConfigArtifact ? "#f59e0b" : "var(--text-muted)"); white-space:nowrap;">
-                            ⚙️ Config (@Studio.Configs.Count):
-                        </label>
-                        <select class="form-control"
-                                style="width:185px; border-color:@(IsConfigArtifact && Studio.CurrentDraft.ApiArtifactId.HasValue ? "#f59e0b" : "var(--border)");"
-                                value="@EffectiveConfigId"
-                                @onchange="OnSelectConfigFromDbAsync">
-                            <option value="">-- Select DB Config --</option>
-                            @foreach (var c in Studio.Configs)
-                            {
-                                <option value="@c.Id">@c.Name (#@c.Id)@(c.Encrypted ? " 🔒" : "")@(c.Signed ? " ✍️" : "")</option>
-                            }
-                        </select>
-                        <button type="button" class="btn btn-sm"
-                                disabled="@(string.IsNullOrEmpty(EffectiveConfigId))"
-                                @onclick="EditSelectedConfigFromDbAsync"
-                                title="Load selected Config from database into designer for editing">
-                            ✎ Edit
-                        </button>
-                    </div>
-
-                    <!-- 3. Database Options Selector -->
-                    <div style="display:flex; align-items:center; gap:4px;">
-                        <label style="font-weight:700; font-size:0.76rem; color:@(IsOptionsArtifact ? "#10b981" : "var(--text-muted)"); white-space:nowrap;">
-                            🎛 Options (@Studio.OptionsList.Count):
-                        </label>
-                        <select class="form-control"
-                                style="width:190px; border-color:@(IsOptionsArtifact && Studio.CurrentDraft.ApiArtifactId.HasValue ? "#10b981" : "var(--border)");"
-                                value="@EffectiveOptionsId"
-                                @onchange="OnSelectOptionsFromDbAsync">
-                            <option value="">-- Select DB Options --</option>
-                            @foreach (var o in Studio.OptionsList)
-                            {
-                                <option value="@o.Id">@o.Name (#@o.Id)@(o.Encrypted ? " 🔒" : "")@(o.Signed ? " ✍️" : "")</option>
-                            }
-                        </select>
-                        <button type="button" class="btn btn-sm"
-                                disabled="@(string.IsNullOrEmpty(EffectiveOptionsId))"
-                                @onclick="EditSelectedOptionsFromDbAsync"
-                                title="Load selected Options from database into designer for editing">
-                            ✎ Edit
-                        </button>
-                    </div>
+                    @RenderDbSelector("🔀 Pipeline", Studio.Pipelines, IsPipelineArtifact, "var(--accent)", EffectivePipelineId, "-- Select DB Pipeline --", OnSelectPipelineFromDbAsync, EditSelectedPipelineFromDbAsync, "185px")
+                    @RenderDbSelector("⚙️ Config", Studio.Configs, IsConfigArtifact, "#f59e0b", EffectiveConfigId, "-- Select DB Config --", OnSelectConfigFromDbAsync, EditSelectedConfigFromDbAsync, "185px")
+                    @RenderDbSelector("🎛 Options", Studio.OptionsList, IsOptionsArtifact, "#10b981", EffectiveOptionsId, "-- Select DB Options --", OnSelectOptionsFromDbAsync, EditSelectedOptionsFromDbAsync, "190px")
 
                     <button type="button" class="btn btn-sm" @onclick="Studio.RefreshHealthAndArtifactsAsync"
                             title="Refresh Pipelines, Configs, and Options from go-flowAPI">
@@ -569,6 +504,8 @@
 </div>
 
 @code {
+    [Parameter] public string? InitialArtifactType { get; set; }
+
     private string _paletteFilter = string.Empty;
     private string _unlockPassphrase = string.Empty;
     private string? _lastSelectedPipelineId;
@@ -603,6 +540,18 @@
     protected override void OnInitialized()
     {
         Studio.OnChange += HandleStudioStateChanged;
+        if (!string.IsNullOrWhiteSpace(InitialArtifactType) &&
+            !string.Equals(Studio.CurrentDraft.ArtifactType, InitialArtifactType, StringComparison.OrdinalIgnoreCase))
+        {
+            if (string.Equals(InitialArtifactType, "config", StringComparison.OrdinalIgnoreCase))
+            {
+                Studio.LoadDefaultConfigDraft();
+            }
+            else if (string.Equals(InitialArtifactType, "options", StringComparison.OrdinalIgnoreCase))
+            {
+                Studio.LoadDefaultOptionsDraft();
+            }
+        }
     }
 
     private void HandleStudioStateChanged()
@@ -614,6 +563,35 @@
     {
         Studio.OnChange -= HandleStudioStateChanged;
     }
+
+    private RenderFragment RenderDbSelector(
+        string labelPrefix,
+        List<ArtifactRecord> items,
+        bool isActiveType,
+        string activeColor,
+        string selectedId,
+        string placeholder,
+        Func<ChangeEventArgs, Task> onChange,
+        Func<Task> onEdit,
+        string width) => __builder =>
+    {
+        <div style="display:flex; align-items:center; gap:4px;">
+            <label style="font-weight:700; font-size:0.76rem; color:@(isActiveType ? activeColor : "var(--text-muted)"); white-space:nowrap;">
+                @labelPrefix (@items.Count):
+            </label>
+            <select class="form-control"
+                    style="width:@width; border-color:@(isActiveType && Studio.CurrentDraft.ApiArtifactId.HasValue ? activeColor : "var(--border)");"
+                    value="@selectedId"
+                    @onchange="onChange">
+                <option value="">@placeholder</option>
+                @foreach (var item in items)
+                {
+                    <option value="@item.Id">@item.Name (#@item.Id)@(item.Encrypted ? " 🔒" : "")@(item.Signed ? " ✍️" : "")</option>
+                }
+            </select>
+            <button type="button" class="btn btn-sm" disabled="@(string.IsNullOrEmpty(selectedId))" @onclick="onEdit">✎ Edit</button>
+        </div>
+    };
 
     private bool MatchesPaletteFilter(ComponentMeta c)
     {
@@ -706,12 +684,7 @@
         if (!Studio.CurrentDraft.ApiArtifactId.HasValue) return;
         var id = Studio.CurrentDraft.ApiArtifactId.Value;
         var type = Studio.CurrentDraft.ArtifactType;
-        var list = type switch
-        {
-            "config" => Studio.Configs,
-            "options" => Studio.OptionsList,
-            _ => Studio.Pipelines
-        };
+        var list = Studio.GetArtifactListForType(type);
         var found = list.FirstOrDefault(a => a.Id == id) ?? new ArtifactRecord
         {
             Id = id,

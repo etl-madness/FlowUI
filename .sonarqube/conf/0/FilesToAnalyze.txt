@@ -16,11 +16,11 @@ C:\Users\U00001\source\repos\etl-madness\flowUI\FlowUI\Services\FlowCryptoServic
 C:\Users\U00001\source\repos\etl-madness\flowUI\FlowUI\Services\StudioStateService.cs
 C:\Users\U00001\source\repos\etl-madness\flowUI\FlowUI\Services\XmlGeneratorService.cs
 C:\Users\U00001\source\repos\etl-madness\flowUI\FlowUI\Services\XmlImporterService.cs
-C:\Users\U00001\source\repos\etl-madness\flowUI\FlowUI\obj\Debug\net10.0\EmbeddedAttribute.cs
-C:\Users\U00001\source\repos\etl-madness\flowUI\FlowUI\obj\Debug\net10.0\ValidatableTypeAttribute.cs
-C:\Users\U00001\source\repos\etl-madness\flowUI\FlowUI\obj\Debug\net10.0\FlowUI.GlobalUsings.g.cs
-C:\Users\U00001\source\repos\etl-madness\flowUI\FlowUI\obj\Debug\net10.0\.NETCoreApp,Version=v10.0.AssemblyAttributes.cs
-C:\Users\U00001\source\repos\etl-madness\flowUI\FlowUI\obj\Debug\net10.0\FlowUI.AssemblyInfo.cs
+C:\Users\U00001\source\repos\etl-madness\flowUI\FlowUI\obj\Release\net10.0\EmbeddedAttribute.cs
+C:\Users\U00001\source\repos\etl-madness\flowUI\FlowUI\obj\Release\net10.0\ValidatableTypeAttribute.cs
+C:\Users\U00001\source\repos\etl-madness\flowUI\FlowUI\obj\Release\net10.0\FlowUI.GlobalUsings.g.cs
+C:\Users\U00001\source\repos\etl-madness\flowUI\FlowUI\obj\Release\net10.0\.NETCoreApp,Version=v10.0.AssemblyAttributes.cs
+C:\Users\U00001\source\repos\etl-madness\flowUI\FlowUI\obj\Release\net10.0\FlowUI.AssemblyInfo.cs
 C:\Users\U00001\source\repos\etl-madness\flowUI\FlowUI\wwwroot\css\app.css
 C:\Users\U00001\source\repos\etl-madness\flowUI\FlowUI\wwwroot\favicon.ico
 C:\Users\U00001\source\repos\etl-madness\flowUI\FlowUI\wwwroot\favicon.jpg

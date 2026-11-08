@@ -455,22 +455,7 @@
             <div class="panel" style="border:1px solid var(--border); border-radius:8px;">
                 <div class="panel-header" style="display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap;">
                     <span>🗄 @(_editProfile.Id > 0 ? $"Edit Database Profile (#{_editProfile.Id})" : "Test Database Connection via go-flowAPI")</span>
-                    @if (_editProfile.LastTestSucceeded == true)
-                    {
-                        <span class="badge badge-success" title="@_editProfile.LastTestMessage">
-                            ✔ Tested@(_editProfile.LastTestLatencyMs.HasValue ? $" ({_editProfile.LastTestLatencyMs} ms)" : "")
-                        </span>
-                    }
-                    else if (_editProfile.LastTestSucceeded == false)
-                    {
-                        <span class="badge badge-error" title="@_editProfile.LastTestMessage">
-                            ❌ Failed
-                        </span>
-                    }
-                    else
-                    {
-                        <span class="section-badge">⚪ Untested</span>
-                    }
+                    @RenderDbStatusBadge(_editProfile)
                 </div>
                 <div class="panel-body">
                     <div class="form-group">
@@ -538,26 +523,7 @@
                                 <tr style="@(isEditing ? "background:rgba(59, 130, 246, 0.1);" : "")">
                                     <td><strong>@prof.Name</strong></td>
                                     <td><code>@prof.Driver</code></td>
-                                    <td>
-                                        @if (prof.LastTestSucceeded == true)
-                                        {
-                                            <span class="badge badge-success" title="@prof.LastTestMessage">
-                                                ✔ Tested@(prof.LastTestLatencyMs.HasValue ? $" ({prof.LastTestLatencyMs} ms)" : "")
-                                            </span>
-                                        }
-                                        else if (prof.LastTestSucceeded == false)
-                                        {
-                                            <span class="badge badge-error" title="@prof.LastTestMessage">
-                                                ❌ Failed
-                                            </span>
-                                        }
-                                        else
-                                        {
-                                            <span class="section-badge" title="Connection has not been tested in this session yet">
-                                                ⚪ Untested
-                                            </span>
-                                        }
-                                    </td>
+                                    <td>@RenderDbStatusBadge(prof)</td>
                                     <td>@prof.Description</td>
                                     <td>
                                         <div style="display:flex; gap:5px; flex-wrap:wrap;">
@@ -793,6 +759,24 @@
         Studio.ShowBanner($"Switched active UI Authentication Provider to '{providerName}'.", "info");
         await Studio.LogEventAsync("AUTH", "SWITCH_PROVIDER", "auth_provider", providerName, "SUCCESS", 0, null);
     }
+
+    private RenderFragment RenderDbStatusBadge(SavedDatabaseProfile prof) => __builder =>
+    {
+        if (prof.LastTestSucceeded == true)
+        {
+            <span class="badge badge-success" title="@prof.LastTestMessage">
+                ✔ Tested@(prof.LastTestLatencyMs.HasValue ? $" ({prof.LastTestLatencyMs} ms)" : "")
+            </span>
+        }
+        else if (prof.LastTestSucceeded == false)
+        {
+            <span class="badge badge-error" title="@prof.LastTestMessage">❌ Failed</span>
+        }
+        else
+        {
+            <span class="section-badge" title="Connection has not been tested in this session yet">⚪ Untested</span>
+        }
+    };
 
     private void EditDbProfile(SavedDatabaseProfile prof)
     {

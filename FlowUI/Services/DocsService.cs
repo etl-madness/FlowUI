@@ -33,50 +33,43 @@ public sealed record HandbookCategoryGroup(
 /// (falling back to CatalogService metadata if a custom component has no markdown file)
 /// and renders them to HTML using Markdig.
 /// </summary>
-public sealed class DocsService
+public sealed partial class DocsService
 {
     private static readonly Dictionary<string, string> DocMap = new(StringComparer.OrdinalIgnoreCase)
     {
-        ["assert"] = "assert.md",
-        ["database"] = "database.md",
-        ["connection_strings"] = "database_connection_strings.md",
-        ["database_connection_strings"] = "database_connection_strings.md",
-        ["db_select_template_stdio"] = "db_select_template_stdio.md",
-        ["excel_read"] = "excel_read.md",
-        ["excel_write"] = "excel_write.md",
-        ["file_read"] = "file_read.md",
-        ["file_save"] = "file_save.md",
-        ["flowui_and_goflowapi"] = "flowui_and_goflowapi.md",
-        ["architecture"] = "flowui_and_goflowapi.md",
-        ["foreach"] = "foreach.md",
-        ["loop"] = "foreach.md",
-        ["group"] = "group.md",
-        ["http_client"] = "http_client.md",
-        ["http"] = "http_client.md",
-        ["if"] = "if_then_else.md",
-        ["if_then_else"] = "if_then_else.md",
-        ["if-then-else"] = "if_then_else.md",
-        ["json_path"] = "json_path.md",
-        ["json_path_guide"] = "json_path_guide.md",
-        ["kv"] = "kv.md",
-        ["kv_bulk"] = "kv.md",
-        ["parallel"] = "parallel.md",
-        ["preflight"] = "preflight.md",
-        ["script"] = "script.md",
-        ["sql"] = "sql.md",
-        ["sql_bulk"] = "sql_bulk.md",
-        ["sql_and_sql_bulk"] = "sql_and_sql_bulk.md",
-        ["template"] = "template.md",
-        ["template_html"] = "template_html.md",
-        ["html_template"] = "template_html.md",
-        ["template_and_template_html"] = "template_and_template_html.md",
-        ["variable"] = "variable.md",
-        ["variables"] = "variables.md",
-        ["while"] = "while.md",
-        ["xml_path"] = "xml_path.md",
-        ["xml_xpath"] = "xml_path.md",
-        ["yaml_path"] = "yaml_path.md"
+        ["assert"] = "assert.md", ["database"] = "database.md", ["connection_strings"] = "database_connection_strings.md",
+        ["database_connection_strings"] = "database_connection_strings.md", ["db_select_template_stdio"] = "db_select_template_stdio.md",
+        ["excel_read"] = "excel_read.md", ["excel_write"] = "excel_write.md", ["file_read"] = "file_read.md", ["file_save"] = "file_save.md",
+        ["flowui_and_goflowapi"] = "flowui_and_goflowapi.md", ["architecture"] = "flowui_and_goflowapi.md",
+        ["foreach"] = "foreach.md", ["loop"] = "foreach.md", ["group"] = "group.md", ["http_client"] = "http_client.md", ["http"] = "http_client.md",
+        ["if"] = "if_then_else.md", ["if_then_else"] = "if_then_else.md", ["if-then-else"] = "if_then_else.md",
+        ["json_path"] = "json_path.md", ["json_path_guide"] = "json_path_guide.md", ["kv"] = "kv.md", ["kv_bulk"] = "kv.md",
+        ["parallel"] = "parallel.md", ["preflight"] = "preflight.md", ["script"] = "script.md",
+        ["sql"] = "sql.md", ["sql_bulk"] = "sql_bulk.md", ["sql_and_sql_bulk"] = "sql_and_sql_bulk.md",
+        ["template"] = "template.md", ["template_html"] = "template_html.md", ["html_template"] = "template_html.md",
+        ["template_and_template_html"] = "template_and_template_html.md", ["variable"] = "variable.md", ["variables"] = "variables.md",
+        ["while"] = "while.md", ["xml_path"] = "xml_path.md", ["xml_xpath"] = "xml_path.md", ["yaml_path"] = "yaml_path.md"
     };
+
+    private static readonly Dictionary<string, (string Key, string Tag, string Title, string Section, string Desc)[]> SupplementalByComponent =
+        new(StringComparer.OrdinalIgnoreCase)
+        {
+            ["variable"] = [("variables", "variables", "Variables & Scoping Guide", "variables",
+                "Deep-dive guide on pipeline variable scoping, thread-safe registry operations, type conversions, and dynamic interpolation.")],
+            ["database"] = [("database_connection_strings", "connection_strings", "Connection Strings & Driver Reference", "databases",
+                "Comprehensive reference of all supported SQL and Key-Value database drivers, DSN formats, TLS settings, and pool tuning profiles.")],
+            ["sql_bulk"] =
+            [
+                ("sql_and_sql_bulk", "sql + sql_bulk", "SQL & SQL Bulk Deep Dive", "flow",
+                    "Architecture and performance guide comparing <sql> and <sql_bulk> for relational queries, batching, and streaming replication."),
+                ("db_select_template_stdio", "os.stdio", "DB Query to Template & Standard I/O", "flow",
+                    "End-to-end guide on querying a database, formatting rows with <template>, and streaming output to standard I/O (os.stdio).")
+            ],
+            ["html_template"] = [("template_and_template_html", "template + html", "Template & HTML Overview", "flow",
+                "Side-by-side comparison and usage patterns for <template> (text/template) and <template_html> (html/template).")],
+            ["json_path"] = [("json_path_guide", "json_path", "JSON Path Deep Dive", "flow",
+                "Extended reference and expression patterns for JSONPath filtering, array projection, and structured extraction.")]
+        };
 
     private readonly CatalogService _catalog;
     private readonly MarkdownPipeline _pipeline;
@@ -138,21 +131,17 @@ public sealed class DocsService
         };
     }
 
-    private static readonly Regex MermaidBlockRegex = new(
-        @"<div class=""mermaid"">([\s\S]*?)</div>",
-        RegexOptions.Compiled | RegexOptions.CultureInvariant);
+    [GeneratedRegex(@"<div class=""mermaid"">([\s\S]*?)</div>", RegexOptions.CultureInvariant, 2000)]
+    private static partial Regex MermaidBlockRegex();
 
-    private static readonly Regex XmlTagInMermaidRegex = new(
-        @"<(\/?([a-zA-Z_][\w-]*)(?:\s[^<>]*)?\/?)>",
-        RegexOptions.Compiled | RegexOptions.CultureInvariant);
+    [GeneratedRegex(@"<(\/?([a-zA-Z_][\w-]*)(?:\s[^<>]*)?\/?)>", RegexOptions.CultureInvariant, 2000)]
+    private static partial Regex XmlTagInMermaidRegex();
 
-    private static readonly Regex HeadingTagRegex = new(
-        @"<h([23])\s+id=""([^""]+)""([^>]*)>([\s\S]*?)</h\1>",
-        RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
+    [GeneratedRegex(@"<h([23])\s+id=""([^""]+)""([^>]*)>([\s\S]*?)</h[23]>", RegexOptions.CultureInvariant | RegexOptions.IgnoreCase, 2000)]
+    private static partial Regex HeadingTagRegex();
 
-    private static readonly Regex HtmlTagStripRegex = new(
-        @"<[^>]+>",
-        RegexOptions.Compiled | RegexOptions.CultureInvariant);
+    [GeneratedRegex(@"<[^>]+>", RegexOptions.CultureInvariant, 2000)]
+    private static partial Regex HtmlTagStripRegex();
 
     private static readonly HashSet<string> AllowedMermaidHtmlTags = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -183,7 +172,7 @@ public sealed class DocsService
         if (!string.IsNullOrWhiteSpace(headingIdPrefix))
         {
             var safePrefix = headingIdPrefix.Trim();
-            html = HeadingTagRegex.Replace(html, match =>
+            html = HeadingTagRegex().Replace(html, match =>
             {
                 var level = match.Groups[1].Value;
                 var origId = match.Groups[2].Value;
@@ -194,10 +183,10 @@ public sealed class DocsService
             });
         }
 
-        return MermaidBlockRegex.Replace(html, static match =>
+        return MermaidBlockRegex().Replace(html, static match =>
         {
             var rawMermaid = WebUtility.HtmlDecode(match.Groups[1].Value).Trim();
-            var sanitizedMermaid = XmlTagInMermaidRegex.Replace(rawMermaid, static tagMatch =>
+            var sanitizedMermaid = XmlTagInMermaidRegex().Replace(rawMermaid, static tagMatch =>
             {
                 var tagName = tagMatch.Groups[2].Value;
                 if (AllowedMermaidHtmlTags.Contains(tagName))
@@ -213,10 +202,10 @@ public sealed class DocsService
         });
     }
 
-    private static IReadOnlyList<HandbookHeading> ExtractHeadingsFromHtml(string html)
+    private static List<HandbookHeading> ExtractHeadingsFromHtml(string html)
     {
         var list = new List<HandbookHeading>();
-        foreach (Match match in HeadingTagRegex.Matches(html))
+        foreach (Match match in HeadingTagRegex().Matches(html))
         {
             if (!int.TryParse(match.Groups[1].Value, out var level))
             {
@@ -224,7 +213,7 @@ public sealed class DocsService
             }
             var id = match.Groups[2].Value;
             var rawInner = match.Groups[4].Value;
-            var cleanText = WebUtility.HtmlDecode(HtmlTagStripRegex.Replace(rawInner, string.Empty)).Trim();
+            var cleanText = WebUtility.HtmlDecode(HtmlTagStripRegex().Replace(rawInner, string.Empty)).Trim();
             if (!string.IsNullOrWhiteSpace(cleanText))
             {
                 list.Add(new HandbookHeading(id, cleanText, level));
@@ -280,64 +269,12 @@ public sealed class DocsService
                     HtmlContent: html,
                     Headings: headings));
 
-                // Insert supplemental deep-dive guides right after their primary component
-                if (string.Equals(comp.Type, "variable", StringComparison.OrdinalIgnoreCase))
+                if (SupplementalByComponent.TryGetValue(comp.Type, out var supps))
                 {
-                    items.Add(BuildSupplementalItem(
-                        key: "variables",
-                        tag: "variables",
-                        title: "Variables & Scoping Guide",
-                        category: category,
-                        section: "variables",
-                        description: "Deep-dive guide on pipeline variable scoping, thread-safe registry operations, type conversions, and dynamic interpolation."));
-                }
-                else if (string.Equals(comp.Type, "database", StringComparison.OrdinalIgnoreCase))
-                {
-                    items.Add(BuildSupplementalItem(
-                        key: "database_connection_strings",
-                        tag: "connection_strings",
-                        title: "Connection Strings & Driver Reference",
-                        category: category,
-                        section: "databases",
-                        description: "Comprehensive reference of all supported SQL and Key-Value database drivers, DSN formats, TLS settings, and pool tuning profiles."));
-                }
-                else if (string.Equals(comp.Type, "sql_bulk", StringComparison.OrdinalIgnoreCase))
-                {
-                    items.Add(BuildSupplementalItem(
-                        key: "sql_and_sql_bulk",
-                        tag: "sql + sql_bulk",
-                        title: "SQL & SQL Bulk Deep Dive",
-                        category: category,
-                        section: "flow",
-                        description: "Architecture and performance guide comparing <sql> and <sql_bulk> for relational queries, batching, and streaming replication."));
-
-                    items.Add(BuildSupplementalItem(
-                        key: "db_select_template_stdio",
-                        tag: "os.stdio",
-                        title: "DB Query to Template & Standard I/O",
-                        category: category,
-                        section: "flow",
-                        description: "End-to-end guide on querying a database, formatting rows with <template>, and streaming output to standard I/O (os.stdio)."));
-                }
-                else if (string.Equals(comp.Type, "html_template", StringComparison.OrdinalIgnoreCase))
-                {
-                    items.Add(BuildSupplementalItem(
-                        key: "template_and_template_html",
-                        tag: "template + html",
-                        title: "Template & HTML Overview",
-                        category: category,
-                        section: "flow",
-                        description: "Side-by-side comparison and usage patterns for <template> (text/template) and <template_html> (html/template)."));
-                }
-                else if (string.Equals(comp.Type, "json_path", StringComparison.OrdinalIgnoreCase))
-                {
-                    items.Add(BuildSupplementalItem(
-                        key: "json_path_guide",
-                        tag: "json_path",
-                        title: "JSON Path Deep Dive",
-                        category: category,
-                        section: "flow",
-                        description: "Extended reference and expression patterns for JSONPath filtering, array projection, and structured extraction."));
+                    foreach (var s in supps)
+                    {
+                        items.Add(BuildSupplementalItem(s.Key, s.Tag, s.Title, category, s.Section, s.Desc));
+                    }
                 }
             }
 

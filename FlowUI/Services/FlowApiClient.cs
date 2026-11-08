@@ -302,12 +302,8 @@ public sealed class FlowApiClient
     // Artifact CRUD (pipeline, config, options)
     // =========================================================================
 
-    public async Task<List<ArtifactRecord>> ListArtifactsAsync(
-        string artifactType = "pipeline",
-        bool includeContent = true,
-        CancellationToken ct = default)
+    private async Task<List<T>> GetListFromJsonAsync<T>(string url, string wrapperProperty, CancellationToken ct)
     {
-        var url = $"/api/v1/artifacts/{Uri.EscapeDataString(artifactType)}?include_content={(includeContent ? "true" : "false")}";
         using var resp = await _http.GetAsync(url, ct);
         resp.EnsureSuccessStatusCode();
 
@@ -315,25 +311,33 @@ public sealed class FlowApiClient
         using var doc = JsonDocument.Parse(json);
         if (doc.RootElement.ValueKind == JsonValueKind.Array)
         {
-            return JsonSerializer.Deserialize<List<ArtifactRecord>>(json, JsonOpts) ?? new();
+            return JsonSerializer.Deserialize<List<T>>(json, JsonOpts) ?? new();
         }
 
-        if (doc.RootElement.TryGetProperty("items", out var itemsElem) && itemsElem.ValueKind == JsonValueKind.Array)
+        if (doc.RootElement.TryGetProperty(wrapperProperty, out var itemsElem) && itemsElem.ValueKind == JsonValueKind.Array)
         {
-            return JsonSerializer.Deserialize<List<ArtifactRecord>>(itemsElem.GetRawText(), JsonOpts) ?? new();
+            return JsonSerializer.Deserialize<List<T>>(itemsElem.GetRawText(), JsonOpts) ?? new();
         }
 
-        return new List<ArtifactRecord>();
+        return new List<T>();
     }
 
-    public async Task<ArtifactRecord?> GetArtifactByIdAsync(
-        string artifactType,
-        int id,
-        string? secureKey = null,
-        CancellationToken ct = default,
-        bool decrypt = true)
+    public Task<List<ArtifactRecord>> ListArtifactsAsync(
+        string artifactType = "pipeline",
+        bool includeContent = true,
+        CancellationToken ct = default)
     {
-        var url = $"/api/v1/artifacts/{Uri.EscapeDataString(artifactType)}/id/{id}?decrypt={(decrypt ? "true" : "false")}";
+        var url = $"/api/v1/artifacts/{Uri.EscapeDataString(artifactType)}?include_content={(includeContent ? "true" : "false")}";
+        return GetListFromJsonAsync<ArtifactRecord>(url, "items", ct);
+    }
+
+    private async Task<ArtifactRecord?> GetArtifactCoreAsync(
+        string basePath,
+        string? secureKey,
+        bool decrypt,
+        CancellationToken ct)
+    {
+        var url = $"{basePath}?decrypt={(decrypt ? "true" : "false")}";
         if (!string.IsNullOrWhiteSpace(secureKey))
         {
             url += $"&secure_key={Uri.EscapeDataString(secureKey)}";
@@ -345,138 +349,90 @@ public sealed class FlowApiClient
             return JsonSerializer.Deserialize<ArtifactRecord>(json, JsonOpts);
         }
 
-        // Fallback: if server-side decryption failed (e.g. encrypted artifact without server-side FLOW_SECURE_KEY),
-        // fetch raw ciphertext so FlowUI can decrypt with the user's session key or prompt for passphrase.
-        var rawUrl = $"/api/v1/artifacts/{Uri.EscapeDataString(artifactType)}/id/{id}?decrypt=false";
+        var rawUrl = $"{basePath}?decrypt=false";
         using var rawResp = await _http.GetAsync(rawUrl, ct);
         if (!rawResp.IsSuccessStatusCode) return null;
         var rawJson = await rawResp.Content.ReadAsStringAsync(ct);
         return JsonSerializer.Deserialize<ArtifactRecord>(rawJson, JsonOpts);
     }
 
-    public async Task<ArtifactRecord?> GetArtifactByNameAsync(
-        string artifactType,
-        string name,
-        string? secureKey = null,
-        CancellationToken ct = default,
-        bool decrypt = true)
-    {
-        var url = $"/api/v1/artifacts/{Uri.EscapeDataString(artifactType)}/{Uri.EscapeDataString(name)}?decrypt={(decrypt ? "true" : "false")}";
-        if (!string.IsNullOrWhiteSpace(secureKey))
-        {
-            url += $"&secure_key={Uri.EscapeDataString(secureKey)}";
-        }
-        using var resp = await _http.GetAsync(url, ct);
-        if (resp.IsSuccessStatusCode)
-        {
-            var json = await resp.Content.ReadAsStringAsync(ct);
-            return JsonSerializer.Deserialize<ArtifactRecord>(json, JsonOpts);
-        }
-
-        var rawUrl = $"/api/v1/artifacts/{Uri.EscapeDataString(artifactType)}/{Uri.EscapeDataString(name)}?decrypt=false";
-        using var rawResp = await _http.GetAsync(rawUrl, ct);
-        if (!rawResp.IsSuccessStatusCode) return null;
-        var rawJson = await rawResp.Content.ReadAsStringAsync(ct);
-        return JsonSerializer.Deserialize<ArtifactRecord>(rawJson, JsonOpts);
-    }
-
-    public async Task<ArtifactRecord> UpsertArtifactAsync(
-        string artifactType,
-        string name,
-        string description,
-        string xmlContent,
-        bool encrypted = false,
-        string? secureKey = null,
-        CancellationToken ct = default)
-    {
-        var url = $"/api/v1/artifacts/{Uri.EscapeDataString(artifactType)}?upsert=true";
-        if (!string.IsNullOrWhiteSpace(secureKey))
-        {
-            url += $"&secure_key={Uri.EscapeDataString(secureKey)}";
-        }
-        var payload = new
-        {
-            name = name.Trim(),
-            description = description ?? string.Empty,
-            content = xmlContent,
-            xml_content = xmlContent,
-            encrypted,
-            secure_key = secureKey ?? string.Empty,
-            upsert = true
-        };
-
-        using var reqContent = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json");
-        using var resp = await _http.PostAsync(url, reqContent, ct);
-        var respBody = await resp.Content.ReadAsStringAsync(ct);
-
-        if (!resp.IsSuccessStatusCode)
-        {
-            throw new InvalidOperationException(ExtractErrorMessage(respBody, $"Failed saving {artifactType} '{name}' (HTTP {(int)resp.StatusCode})"));
-        }
-
-        return JsonSerializer.Deserialize<ArtifactRecord>(respBody, JsonOpts)
-               ?? new ArtifactRecord { Name = name, Description = description ?? "", Content = xmlContent, Type = artifactType, Encrypted = encrypted };
-    }
-
-    public async Task<ArtifactRecord> UpdateArtifactByIdAsync(
+    public Task<ArtifactRecord?> GetArtifactByIdAsync(
         string artifactType,
         int id,
-        string description,
-        string xmlContent,
-        bool encrypted = false,
         string? secureKey = null,
-        CancellationToken ct = default)
-    {
-        var url = $"/api/v1/artifacts/{Uri.EscapeDataString(artifactType)}/id/{id}";
-        if (!string.IsNullOrWhiteSpace(secureKey))
-        {
-            url += $"?secure_key={Uri.EscapeDataString(secureKey)}";
-        }
-        var payload = new
-        {
-            description = description ?? string.Empty,
-            content = xmlContent,
-            xml_content = xmlContent,
-            encrypted,
-            secure_key = secureKey ?? string.Empty
-        };
+        bool decrypt = true,
+        CancellationToken ct = default) =>
+        GetArtifactCoreAsync($"/api/v1/artifacts/{Uri.EscapeDataString(artifactType)}/id/{id}", secureKey, decrypt, ct);
 
-        using var reqContent = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json");
-        using var resp = await _http.PutAsync(url, reqContent, ct);
+    public Task<ArtifactRecord?> GetArtifactByNameAsync(
+        string artifactType,
+        string name,
+        string? secureKey = null,
+        bool decrypt = true,
+        CancellationToken ct = default) =>
+        GetArtifactCoreAsync($"/api/v1/artifacts/{Uri.EscapeDataString(artifactType)}/{Uri.EscapeDataString(name)}", secureKey, decrypt, ct);
+
+    private async Task<ArtifactRecord> SendArtifactMutationAsync(
+        HttpMethod method,
+        string url,
+        object payload,
+        string errorPrefix,
+        ArtifactRecord fallback,
+        CancellationToken ct)
+    {
+        using var req = new HttpRequestMessage(method, url)
+        {
+            Content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json")
+        };
+        using var resp = await _http.SendAsync(req, ct);
         var respBody = await resp.Content.ReadAsStringAsync(ct);
 
         if (!resp.IsSuccessStatusCode)
         {
-            throw new InvalidOperationException(ExtractErrorMessage(respBody, $"Failed updating {artifactType} #{id} (HTTP {(int)resp.StatusCode})"));
+            throw new InvalidOperationException(ExtractErrorMessage(respBody, $"{errorPrefix} (HTTP {(int)resp.StatusCode})"));
         }
 
-        return JsonSerializer.Deserialize<ArtifactRecord>(respBody, JsonOpts)
-               ?? new ArtifactRecord { Id = id, Description = description ?? "", Content = xmlContent, Type = artifactType, Encrypted = encrypted };
+        return JsonSerializer.Deserialize<ArtifactRecord>(respBody, JsonOpts) ?? fallback;
     }
 
-    public async Task<bool> DeleteArtifactByIdAsync(string artifactType, int id, CancellationToken ct = default)
+    public Task<ArtifactRecord> UpsertArtifactAsync(
+        string artifactType, string name, string description, string xmlContent,
+        bool encrypted = false, string? secureKey = null, CancellationToken ct = default)
     {
-        var url = $"/api/v1/artifacts/{Uri.EscapeDataString(artifactType)}/id/{id}";
+        var url = $"/api/v1/artifacts/{Uri.EscapeDataString(artifactType)}?upsert=true"
+                + (string.IsNullOrWhiteSpace(secureKey) ? "" : $"&secure_key={Uri.EscapeDataString(secureKey)}");
+        var payload = new { name = name.Trim(), description = description ?? "", content = xmlContent, xml_content = xmlContent, encrypted, secure_key = secureKey ?? "", upsert = true };
+        var fallback = new ArtifactRecord { Name = name, Description = description ?? "", Content = xmlContent, Type = artifactType, Encrypted = encrypted };
+        return SendArtifactMutationAsync(HttpMethod.Post, url, payload, $"Failed saving {artifactType} '{name}'", fallback, ct);
+    }
+
+    public Task<ArtifactRecord> UpdateArtifactByIdAsync(
+        string artifactType, int id, string description, string xmlContent,
+        bool encrypted = false, string? secureKey = null, CancellationToken ct = default)
+    {
+        var url = $"/api/v1/artifacts/{Uri.EscapeDataString(artifactType)}/id/{id}"
+                + (string.IsNullOrWhiteSpace(secureKey) ? "" : $"?secure_key={Uri.EscapeDataString(secureKey)}");
+        var payload = new { description = description ?? "", content = xmlContent, xml_content = xmlContent, encrypted, secure_key = secureKey ?? "" };
+        var fallback = new ArtifactRecord { Id = id, Description = description ?? "", Content = xmlContent, Type = artifactType, Encrypted = encrypted };
+        return SendArtifactMutationAsync(HttpMethod.Put, url, payload, $"Failed updating {artifactType} #{id}", fallback, ct);
+    }
+
+    private async Task<bool> DeleteCoreAsync(string url, string errorPrefix, CancellationToken ct)
+    {
         using var resp = await _http.DeleteAsync(url, ct);
         if (!resp.IsSuccessStatusCode)
         {
             var body = await resp.Content.ReadAsStringAsync(ct);
-            throw new InvalidOperationException(ExtractErrorMessage(body, $"Failed deleting {artifactType} #{id}"));
+            throw new InvalidOperationException(ExtractErrorMessage(body, errorPrefix));
         }
         return true;
     }
 
-    public async Task<bool> DeleteArtifactByNameAsync(string artifactType, string name, CancellationToken ct = default)
-    {
-        var url = $"/api/v1/artifacts/{Uri.EscapeDataString(artifactType)}/{Uri.EscapeDataString(name)}";
-        using var resp = await _http.DeleteAsync(url, ct);
-        if (!resp.IsSuccessStatusCode)
-        {
-            var body = await resp.Content.ReadAsStringAsync(ct);
-            throw new InvalidOperationException(ExtractErrorMessage(body, $"Failed deleting {artifactType} '{name}'"));
-        }
-        return true;
-    }
+    public Task<bool> DeleteArtifactByIdAsync(string artifactType, int id, CancellationToken ct = default) =>
+        DeleteCoreAsync($"/api/v1/artifacts/{Uri.EscapeDataString(artifactType)}/id/{id}", $"Failed deleting {artifactType} #{id}", ct);
+
+    public Task<bool> DeleteArtifactByNameAsync(string artifactType, string name, CancellationToken ct = default) =>
+        DeleteCoreAsync($"/api/v1/artifacts/{Uri.EscapeDataString(artifactType)}/{Uri.EscapeDataString(name)}", $"Failed deleting {artifactType} '{name}'", ct);
 
     // =========================================================================
     // Pipeline Validation & Execution (Sync + SSE Stream)
@@ -663,7 +619,7 @@ public sealed class FlowApiClient
     // Telemetry & Audit Logs (/api/v1/runs, /api/v1/events, /api/v1/audit)
     // =========================================================================
 
-    public async Task<List<PipelineRunRecord>> GetPipelineRunsAsync(
+    public Task<List<PipelineRunRecord>> GetPipelineRunsAsync(
         string? statusFilter = null,
         int limit = 150,
         CancellationToken ct = default)
@@ -673,46 +629,19 @@ public sealed class FlowApiClient
         {
             url += $"&status={Uri.EscapeDataString(statusFilter)}";
         }
-
-        using var resp = await _http.GetAsync(url, ct);
-        resp.EnsureSuccessStatusCode();
-        var json = await resp.Content.ReadAsStringAsync(ct);
-
-        using var doc = JsonDocument.Parse(json);
-        if (doc.RootElement.ValueKind == JsonValueKind.Array)
-        {
-            return JsonSerializer.Deserialize<List<PipelineRunRecord>>(json, JsonOpts) ?? new();
-        }
-        if (doc.RootElement.TryGetProperty("runs", out var runsElem) && runsElem.ValueKind == JsonValueKind.Array)
-        {
-            return JsonSerializer.Deserialize<List<PipelineRunRecord>>(runsElem.GetRawText(), JsonOpts) ?? new();
-        }
-        return new List<PipelineRunRecord>();
+        return GetListFromJsonAsync<PipelineRunRecord>(url, "runs", ct);
     }
 
-    public async Task<List<PipelineEventRecord>> GetPipelineEventsAsync(
+    public Task<List<PipelineEventRecord>> GetPipelineEventsAsync(
         string runId,
         int limit = 500,
         CancellationToken ct = default)
     {
         var url = $"/api/v1/events?run_id={Uri.EscapeDataString(runId)}&limit={limit}";
-        using var resp = await _http.GetAsync(url, ct);
-        resp.EnsureSuccessStatusCode();
-        var json = await resp.Content.ReadAsStringAsync(ct);
-
-        using var doc = JsonDocument.Parse(json);
-        if (doc.RootElement.ValueKind == JsonValueKind.Array)
-        {
-            return JsonSerializer.Deserialize<List<PipelineEventRecord>>(json, JsonOpts) ?? new();
-        }
-        if (doc.RootElement.TryGetProperty("events", out var evElem) && evElem.ValueKind == JsonValueKind.Array)
-        {
-            return JsonSerializer.Deserialize<List<PipelineEventRecord>>(evElem.GetRawText(), JsonOpts) ?? new();
-        }
-        return new List<PipelineEventRecord>();
+        return GetListFromJsonAsync<PipelineEventRecord>(url, "events", ct);
     }
 
-    public async Task<List<ApiAuditRecord>> GetApiAuditLogsAsync(
+    public Task<List<ApiAuditRecord>> GetApiAuditLogsAsync(
         int limit = 200,
         string? statusFilter = null,
         CancellationToken ct = default)
@@ -722,21 +651,7 @@ public sealed class FlowApiClient
         {
             url += $"&status={Uri.EscapeDataString(statusFilter)}";
         }
-
-        using var resp = await _http.GetAsync(url, ct);
-        resp.EnsureSuccessStatusCode();
-        var json = await resp.Content.ReadAsStringAsync(ct);
-
-        using var doc = JsonDocument.Parse(json);
-        if (doc.RootElement.ValueKind == JsonValueKind.Array)
-        {
-            return JsonSerializer.Deserialize<List<ApiAuditRecord>>(json, JsonOpts) ?? new();
-        }
-        if (doc.RootElement.TryGetProperty("api_events", out var evElem) && evElem.ValueKind == JsonValueKind.Array)
-        {
-            return JsonSerializer.Deserialize<List<ApiAuditRecord>>(evElem.GetRawText(), JsonOpts) ?? new();
-        }
-        return new List<ApiAuditRecord>();
+        return GetListFromJsonAsync<ApiAuditRecord>(url, "api_events", ct);
     }
 
     // =========================================================================
@@ -781,23 +696,8 @@ public sealed class FlowApiClient
         }
     }
 
-    public async Task<List<ApiUserRecord>> GetApiUsersAsync(CancellationToken ct = default)
-    {
-        using var resp = await _http.GetAsync("/api/v1/users", ct);
-        resp.EnsureSuccessStatusCode();
-        var json = await resp.Content.ReadAsStringAsync(ct);
-
-        using var doc = JsonDocument.Parse(json);
-        if (doc.RootElement.ValueKind == JsonValueKind.Array)
-        {
-            return JsonSerializer.Deserialize<List<ApiUserRecord>>(json, JsonOpts) ?? new();
-        }
-        if (doc.RootElement.TryGetProperty("users", out var uElem) && uElem.ValueKind == JsonValueKind.Array)
-        {
-            return JsonSerializer.Deserialize<List<ApiUserRecord>>(uElem.GetRawText(), JsonOpts) ?? new();
-        }
-        return new List<ApiUserRecord>();
-    }
+    public Task<List<ApiUserRecord>> GetApiUsersAsync(CancellationToken ct = default) =>
+        GetListFromJsonAsync<ApiUserRecord>("/api/v1/users", "users", ct);
 
     public async Task<ApiUserRecord?> UpsertApiUserAsync(
         string username,
@@ -839,33 +739,23 @@ public sealed class FlowApiClient
     // Cryptography & PKI Operations (/api/v1/crypto/*)
     // =========================================================================
 
-    public async Task<CryptoKeygenResponse?> CryptoKeygenAsync(
-        CryptoKeygenRequest request,
-        CancellationToken ct = default)
+    private async Task<T?> PostJsonForObjectAsync<T>(string url, object request, string errorPrefix, CancellationToken ct) where T : class
     {
         using var content = new StringContent(JsonSerializer.Serialize(request), Encoding.UTF8, "application/json");
-        using var resp = await _http.PostAsync("/api/v1/crypto/keygen", content, ct);
+        using var resp = await _http.PostAsync(url, content, ct);
         var body = await resp.Content.ReadAsStringAsync(ct);
         if (!resp.IsSuccessStatusCode)
         {
-            throw new InvalidOperationException(ExtractErrorMessage(body, "Crypto key generation failed via API."));
+            throw new InvalidOperationException(ExtractErrorMessage(body, errorPrefix));
         }
-        return TryDeserialize<CryptoKeygenResponse>(body);
+        return TryDeserialize<T>(body);
     }
 
-    public async Task<CryptoSignResponse?> CryptoSignAsync(
-        CryptoSignRequest request,
-        CancellationToken ct = default)
-    {
-        using var content = new StringContent(JsonSerializer.Serialize(request), Encoding.UTF8, "application/json");
-        using var resp = await _http.PostAsync("/api/v1/crypto/sign", content, ct);
-        var body = await resp.Content.ReadAsStringAsync(ct);
-        if (!resp.IsSuccessStatusCode)
-        {
-            throw new InvalidOperationException(ExtractErrorMessage(body, "Digital signature failed via API."));
-        }
-        return TryDeserialize<CryptoSignResponse>(body);
-    }
+    public Task<CryptoKeygenResponse?> CryptoKeygenAsync(CryptoKeygenRequest request, CancellationToken ct = default) =>
+        PostJsonForObjectAsync<CryptoKeygenResponse>("/api/v1/crypto/keygen", request, "Crypto key generation failed via API.", ct);
+
+    public Task<CryptoSignResponse?> CryptoSignAsync(CryptoSignRequest request, CancellationToken ct = default) =>
+        PostJsonForObjectAsync<CryptoSignResponse>("/api/v1/crypto/sign", request, "Digital signature failed via API.", ct);
 
     public async Task<CryptoVerifyResponse?> CryptoVerifyAsync(
         CryptoVerifyRequest request,
@@ -890,47 +780,25 @@ public sealed class FlowApiClient
         return new CryptoVerifyResponse { Verified = true };
     }
 
-    public async Task<string> CryptoEncryptViaApiAsync(
-        string payloadText,
-        string? secureKey = null,
-        CancellationToken ct = default)
+    private async Task<string> PostCryptoTransformAsync(string url, string payloadText, string? secureKey, string propName, string errorPrefix, CancellationToken ct)
     {
         var req = new { payload = payloadText, secure_key = secureKey ?? string.Empty };
         using var content = new StringContent(JsonSerializer.Serialize(req), Encoding.UTF8, "application/json");
-        using var resp = await _http.PostAsync("/api/v1/crypto/encrypt", content, ct);
+        using var resp = await _http.PostAsync(url, content, ct);
         var body = await resp.Content.ReadAsStringAsync(ct);
         if (!resp.IsSuccessStatusCode)
         {
-            throw new InvalidOperationException(ExtractErrorMessage(body, "Encryption failed via API."));
+            throw new InvalidOperationException(ExtractErrorMessage(body, errorPrefix));
         }
         using var doc = JsonDocument.Parse(body);
-        if (doc.RootElement.TryGetProperty("encrypted_payload", out var encProp))
-        {
-            return encProp.GetString() ?? string.Empty;
-        }
-        return string.Empty;
+        return doc.RootElement.TryGetProperty(propName, out var prop) ? (prop.GetString() ?? string.Empty) : string.Empty;
     }
 
-    public async Task<string> CryptoDecryptViaApiAsync(
-        string encryptedText,
-        string? secureKey = null,
-        CancellationToken ct = default)
-    {
-        var req = new { payload = encryptedText, secure_key = secureKey ?? string.Empty };
-        using var content = new StringContent(JsonSerializer.Serialize(req), Encoding.UTF8, "application/json");
-        using var resp = await _http.PostAsync("/api/v1/crypto/decrypt", content, ct);
-        var body = await resp.Content.ReadAsStringAsync(ct);
-        if (!resp.IsSuccessStatusCode)
-        {
-            throw new InvalidOperationException(ExtractErrorMessage(body, "Decryption failed via API."));
-        }
-        using var doc = JsonDocument.Parse(body);
-        if (doc.RootElement.TryGetProperty("decrypted_payload", out var decProp))
-        {
-            return decProp.GetString() ?? string.Empty;
-        }
-        return string.Empty;
-    }
+    public Task<string> CryptoEncryptViaApiAsync(string payloadText, string? secureKey = null, CancellationToken ct = default) =>
+        PostCryptoTransformAsync("/api/v1/crypto/encrypt", payloadText, secureKey, "encrypted_payload", "Encryption failed via API.", ct);
+
+    public Task<string> CryptoDecryptViaApiAsync(string encryptedText, string? secureKey = null, CancellationToken ct = default) =>
+        PostCryptoTransformAsync("/api/v1/crypto/decrypt", encryptedText, secureKey, "decrypted_payload", "Decryption failed via API.", ct);
 
     private T? TryDeserialize<T>(string json) where T : class
     {

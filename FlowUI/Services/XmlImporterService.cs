@@ -70,44 +70,21 @@ public sealed class XmlImporterService
             foreach (var elem in optionsContainer.Elements())
             {
                 var tag = elem.Name.LocalName;
-                if (string.Equals(tag, "option", StringComparison.OrdinalIgnoreCase) ||
-                    string.Equals(tag, "param", StringComparison.OrdinalIgnoreCase))
+                var isLegacyOption = string.Equals(tag, "option", StringComparison.OrdinalIgnoreCase) ||
+                                     string.Equals(tag, "param", StringComparison.OrdinalIgnoreCase);
+                var rawFlag = isLegacyOption
+                    ? (elem.Attribute("flag")?.Value ?? elem.Attribute("name")?.Value ?? "vars")
+                    : tag;
+                var normTag = XmlGeneratorService.NormalizeOptionTagName(rawFlag);
+                var val = isLegacyOption
+                    ? (elem.Attribute("value")?.Value ?? elem.Value?.Trim() ?? string.Empty)
+                    : (elem.Value?.Trim() ?? string.Empty);
+
+                if (XmlGeneratorService.BooleanOptionElements.Contains(normTag) && string.IsNullOrEmpty(val))
                 {
-                    // Legacy <option flag="--node-output">true</option> fallback
-                    var rawFlag = elem.Attribute("flag")?.Value
-                               ?? elem.Attribute("name")?.Value
-                               ?? "vars";
-                    var normTag = XmlGeneratorService.NormalizeOptionTagName(rawFlag);
-                    var val = elem.Attribute("value")?.Value
-                           ?? elem.Value?.Trim()
-                           ?? string.Empty;
-                    if (XmlGeneratorService.BooleanOptionElements.Contains(normTag) && string.IsNullOrEmpty(val))
-                    {
-                        val = "true";
-                    }
-                    optDraft.OptionEntries.Add(new FlowOptionEntry
-                    {
-                        Id = genId(),
-                        Flag = normTag,
-                        Value = val
-                    });
+                    val = "true";
                 }
-                else
-                {
-                    // options.xsd compliant element: <node-output>true</node-output>, <format>json</format>, <vars>ENV=DEV</vars>, etc.
-                    var normTag = XmlGeneratorService.NormalizeOptionTagName(tag);
-                    var val = elem.Value?.Trim() ?? string.Empty;
-                    if (XmlGeneratorService.BooleanOptionElements.Contains(normTag) && string.IsNullOrEmpty(val))
-                    {
-                        val = "true";
-                    }
-                    optDraft.OptionEntries.Add(new FlowOptionEntry
-                    {
-                        Id = genId(),
-                        Flag = normTag,
-                        Value = val
-                    });
-                }
+                optDraft.OptionEntries.Add(new FlowOptionEntry { Id = genId(), Flag = normTag, Value = val });
             }
 
             return optDraft;
@@ -224,7 +201,7 @@ public sealed class XmlImporterService
         }
     }
 
-    private PipelineNode ParseElementTree(string section, XElement elem, long? parentId, int sequenceOrder, Func<long> genId)
+    private static PipelineNode ParseElementTree(string section, XElement elem, long? parentId, int sequenceOrder, Func<long> genId)
     {
         var tag = elem.Name.LocalName;
         var nodeId = genId();
@@ -301,29 +278,7 @@ public sealed class XmlImporterService
         var childElements = elem.Elements().ToList();
         var directText = ExtractDirectText(elem);
 
-        if (isContainerTag || childElements.Count > 0)
-        {
-            var containerNode = new PipelineNode
-            {
-                Id = nodeId,
-                ParentNodeId = parentId,
-                Section = section,
-                NodeType = tag,
-                SequenceOrder = sequenceOrder,
-                Attributes = attrs,
-                ContentText = string.Equals(tag, "foreach", StringComparison.OrdinalIgnoreCase) ? directText : string.Empty
-            };
-
-            int childSeq = 1;
-            foreach (var ch in childElements)
-            {
-                containerNode.Children.Add(ParseElementTree(section, ch, containerNode.Id, childSeq++, genId));
-            }
-
-            return containerNode;
-        }
-
-        return new PipelineNode
+        var node = new PipelineNode
         {
             Id = nodeId,
             ParentNodeId = parentId,
@@ -331,8 +286,21 @@ public sealed class XmlImporterService
             NodeType = tag,
             SequenceOrder = sequenceOrder,
             Attributes = attrs,
-            ContentText = ExtractLeafContent(elem)
+            ContentText = (isContainerTag || childElements.Count > 0)
+                ? (string.Equals(tag, "foreach", StringComparison.OrdinalIgnoreCase) ? directText : string.Empty)
+                : ExtractLeafContent(elem)
         };
+
+        if (isContainerTag || childElements.Count > 0)
+        {
+            int childSeq = 1;
+            foreach (var ch in childElements)
+            {
+                node.Children.Add(ParseElementTree(section, ch, node.Id, childSeq++, genId));
+            }
+        }
+
+        return node;
     }
 
     private static Dictionary<string, string> ExtractAttributes(XElement elem)

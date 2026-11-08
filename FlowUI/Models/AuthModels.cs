@@ -1,32 +1,23 @@
 namespace FlowUI.Models;
 
 /// <summary>
+/// Base permission flags shared by CrudPermissions and AppUser.
+/// </summary>
+public abstract class PermissionFlagsBase
+{
+    public bool CanCreate { get; set; }
+    public bool CanRead { get; set; } = true;
+    public bool CanUpdate { get; set; }
+    public bool CanDelete { get; set; }
+    public bool CanExecute { get; set; }
+    public bool IsAdmin { get; set; }
+}
+
+/// <summary>
 /// Granular CRUD + Execute + Admin permissions for UI access.
 /// </summary>
-public sealed class CrudPermissions
+public sealed class CrudPermissions : PermissionFlagsBase
 {
-    public bool CanCreate
-    {
-        get; set;
-    }
-    public bool CanRead { get; set; } = true;
-    public bool CanUpdate
-    {
-        get; set;
-    }
-    public bool CanDelete
-    {
-        get; set;
-    }
-    public bool CanExecute
-    {
-        get; set;
-    }
-    public bool IsAdmin
-    {
-        get; set;
-    }
-
     public static CrudPermissions FullAdmin() => new()
     {
         CanCreate = true,
@@ -63,31 +54,10 @@ public sealed class CrudPermissions
 /// <summary>
 /// Represents an authenticated or configured UI user stored in dbo.flow_ui_users.
 /// </summary>
-public sealed class AppUser
+public sealed class AppUser : PermissionFlagsBase
 {
     public string Username { get; set; } = string.Empty;
     public string PasswordHash { get; set; } = string.Empty;
-    public bool CanCreate
-    {
-        get; set;
-    }
-    public bool CanRead { get; set; } = true;
-    public bool CanUpdate
-    {
-        get; set;
-    }
-    public bool CanDelete
-    {
-        get; set;
-    }
-    public bool CanExecute
-    {
-        get; set;
-    }
-    public bool IsAdmin
-    {
-        get; set;
-    }
     public bool IsActive { get; set; } = true;
     public string Description { get; set; } = string.Empty;
     public string AuthProvider { get; set; } = "Database";
@@ -112,10 +82,7 @@ public sealed class AuthRequest
 {
     public string Username { get; set; } = string.Empty;
     public string Password { get; set; } = string.Empty;
-    public string? DomainOrTenant
-    {
-        get; set;
-    }
+    public string? DomainOrTenant { get; set; }
     public Dictionary<string, string> Metadata { get; set; } = new();
 }
 
@@ -124,18 +91,9 @@ public sealed class AuthRequest
 /// </summary>
 public sealed class AuthResult
 {
-    public bool Succeeded
-    {
-        get; set;
-    }
-    public AppUser? User
-    {
-        get; set;
-    }
-    public string? ErrorMessage
-    {
-        get; set;
-    }
+    public bool Succeeded { get; set; }
+    public AppUser? User { get; set; }
+    public string? ErrorMessage { get; set; }
     public string ProviderName { get; set; } = string.Empty;
 
     public static AuthResult Success(AppUser user, string providerName) => new()

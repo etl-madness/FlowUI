@@ -54,26 +54,16 @@ public sealed class XmlGeneratorService
 
     public static readonly IReadOnlyList<(string Tag, string Type, string DefaultValue, string Description)> OptionsXsdCatalog =
     [
-        ("vars", "string", "ENV=DEV", "Comma-separated key=value runtime variable overrides (-vars)"),
-        ("node-output", "boolean", "true", "Record output of each node into pipeline_events.node_output (-node-output)"),
-        ("format", "enum", "json", "Output formatting: csv, text, json, jsonpretty, markdown, summary, stream (-format)"),
-        ("debug", "boolean", "true", "Enable detailed console execution logging (-debug)"),
-        ("preflight", "boolean", "false", "Execute preflight validation nodes only (-preflight)"),
-        ("validate", "boolean", "false", "Validate XML schema and AST structure without executing (-validate)"),
-        ("config", "string", "", "Optional path/name to a CONFIG.xml file (-config)"),
-        ("file", "string", "scripts.xml", "Path to pipeline XML file (-file)"),
-        ("xsd", "string", "", "Optional path to XSD file for schema validation (-xsd)"),
-        ("encrypted", "boolean", "false", "Decrypt encrypted resources using secure-key prior to execution (-encrypted)"),
-        ("secure-key", "string", "", "Secret key or passphrase used to decrypt XML (-secure-key)"),
-        ("verify-signature", "boolean", "false", "Verify digital signature before executing (-verify-signature)"),
-        ("public-key", "string", "", "Path to PEM public key file for signature verification (-public-key)"),
-        ("cert", "string", "", "Path to X.509 certificate file for signature verification (-cert)"),
-        ("ca-cert", "string", "", "Path to root CA certificate file (-ca-cert)"),
-        ("keyring", "string", "", "Path to OpenPGP armored public keyring (-keyring)"),
-        ("signature", "string", "", "Path to detached digital signature file (-signature)"),
-        ("gopath", "string", "", "GOPATH directory for dynamic interpreter imports (-gopath)"),
-        ("xslt", "string", "", "Optional path to custom XSLT stylesheet (-xslt)"),
-        ("out", "string", "", "Path to output file for XSLT transformed XML (-out)")
+        ("vars", "string", "ENV=DEV", "Comma-separated key=value runtime variable overrides (-vars)"), ("node-output", "boolean", "true", "Record output of each node into pipeline_events.node_output (-node-output)"),
+        ("format", "enum", "json", "Output formatting: csv, text, json, jsonpretty, markdown, summary, stream (-format)"), ("debug", "boolean", "true", "Enable detailed console execution logging (-debug)"),
+        ("preflight", "boolean", "false", "Execute preflight validation nodes only (-preflight)"), ("validate", "boolean", "false", "Validate XML schema and AST structure without executing (-validate)"),
+        ("config", "string", "", "Optional path/name to a CONFIG.xml file (-config)"), ("file", "string", "scripts.xml", "Path to pipeline XML file (-file)"),
+        ("xsd", "string", "", "Optional path to XSD file for schema validation (-xsd)"), ("encrypted", "boolean", "false", "Decrypt encrypted resources using secure-key prior to execution (-encrypted)"),
+        ("secure-key", "string", "", "Secret key or passphrase used to decrypt XML (-secure-key)"), ("verify-signature", "boolean", "false", "Verify digital signature before executing (-verify-signature)"),
+        ("public-key", "string", "", "Path to PEM public key file for signature verification (-public-key)"), ("cert", "string", "", "Path to X.509 certificate file for signature verification (-cert)"),
+        ("ca-cert", "string", "", "Path to root CA certificate file (-ca-cert)"), ("keyring", "string", "", "Path to OpenPGP armored public keyring (-keyring)"),
+        ("signature", "string", "", "Path to detached digital signature file (-signature)"), ("gopath", "string", "", "GOPATH directory for dynamic interpreter imports (-gopath)"),
+        ("xslt", "string", "", "Optional path to custom XSLT stylesheet (-xslt)"), ("out", "string", "", "Path to output file for XSLT transformed XML (-out)")
     ];
 
     public static string NormalizeOptionTagName(string? rawFlag)
@@ -125,16 +115,16 @@ public sealed class XmlGeneratorService
                     rawVal = rawVal.ToLowerInvariant();
             }
 
-            if (!valuesByTag.ContainsKey(tag))
+            if (!valuesByTag.TryGetValue(tag, out var existingValue))
             {
                 orderedTags.Add(tag);
                 valuesByTag[tag] = rawVal;
             }
             else if (string.Equals(tag, "vars", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrEmpty(rawVal))
             {
-                valuesByTag[tag] = string.IsNullOrEmpty(valuesByTag[tag])
+                valuesByTag[tag] = string.IsNullOrEmpty(existingValue)
                     ? rawVal
-                    : $"{valuesByTag[tag]},{rawVal}";
+                    : $"{existingValue},{rawVal}";
             }
             else
             {
