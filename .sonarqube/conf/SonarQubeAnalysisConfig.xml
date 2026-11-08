@@ -12,6 +12,7 @@
   <SonarQubeHostUrl>http://localhost:9000</SonarQubeHostUrl>
   <SonarQubeVersion>26.11.0.134175</SonarQubeVersion>
   <SonarProjectKey>FlowUI</SonarProjectKey>
+  <SonarProjectName>FlowUI</SonarProjectName>
   <AdditionalConfig>
     <ConfigSetting Id="BuildUri" />
     <ConfigSetting Id="UnchangedFilesPath" />
@@ -159,11 +160,14 @@
     <Property Name="sonaranalyzer-vbnet.pluginKey">vbnet</Property>
     <Property Name="sonar.java.jvmframeworkconfig.activate">true</Property>
     <Property Name="sonar.updatecenter.url">https://downloads.sonarsource.com/sonarqube/update/update-center.properties</Property>
-    <Property Name="sonar.core.startTime">11/7/2026 9:08:17 AM</Property>
     <Property Name="sonar.core.id">147B411E-AaG2VrZQKgEz7QcXp9UE</Property>
+    <Property Name="sonar.core.startTime">11/8/2026 3:54:06 PM</Property>
   </ServerSettings>
   <LocalSettings>
     <Property Name="sonar.host.url">http://localhost:9000</Property>
+    <Property Name="sonar.cs.vstest.reportsPaths">C:\Users\U00001\source\repos\etl-madness\flowUI\TestResults\20261108-174201\**\*.trx</Property>
+    <Property Name="sonar.cs.opencover.reportsPaths">C:\Users\U00001\source\repos\etl-madness\flowUI\TestResults\20261108-174201\**\coverage.opencover.xml</Property>
+    <Property Name="sonar.exclusions">**/*.min.js,**/wwwroot/lib/**,**/node_modules/**,C:\Users\U00001\source\repos\etl-madness\flowUI\TestResults\20261108-174201\**\coverage.opencover.xml</Property>
   </LocalSettings>
   <ScannerOptsSettings />
   <AnalyzersSettings>

@@ -72,7 +72,7 @@ public sealed class CryptoKeygenResponse
     public string Fingerprint { get; set; } = string.Empty;
 }
 
-public sealed class CryptoSignRequest
+public abstract class CryptoPayloadRequestBase
 {
     [JsonPropertyName("content")]
     public string Content { get; set; } = string.Empty;
@@ -84,6 +84,15 @@ public sealed class CryptoSignRequest
         set => Content = value ?? string.Empty;
     }
 
+    [JsonPropertyName("cert_pem")]
+    public string CertPem { get; set; } = string.Empty;
+
+    [JsonPropertyName("secure_key")]
+    public string SecureKey { get; set; } = string.Empty;
+}
+
+public sealed class CryptoSignRequest : CryptoPayloadRequestBase
+{
     [JsonPropertyName("scheme")]
     public string Scheme { get; set; } = "OPENSSL"; // OPENSSL, PKCS7, PGP
 
@@ -97,9 +106,6 @@ public sealed class CryptoSignRequest
     [JsonPropertyName("private_key_pem")]
     public string PrivateKeyPem { get; set; } = string.Empty;
 
-    [JsonPropertyName("cert_pem")]
-    public string CertPem { get; set; } = string.Empty;
-
     [JsonPropertyName("passphrase")]
     public string Passphrase { get; set; } = string.Empty;
 
@@ -108,16 +114,22 @@ public sealed class CryptoSignRequest
 
     [JsonPropertyName("encrypt_mode")]
     public string EncryptMode { get; set; } = "none"; // "none", "sign-then-encrypt", "encrypt-then-sign"
-
-    [JsonPropertyName("secure_key")]
-    public string SecureKey { get; set; } = string.Empty;
 }
 
-public sealed class CryptoSignResponse
+public abstract class CryptoEnvelopeResponseBase
 {
     [JsonPropertyName("format")]
     public string Format { get; set; } = string.Empty;
 
+    [JsonPropertyName("encrypted")]
+    public bool Encrypted { get; set; }
+
+    [JsonPropertyName("signed")]
+    public bool Signed { get; set; }
+}
+
+public sealed class CryptoSignResponse : CryptoEnvelopeResponseBase
+{
     [JsonPropertyName("raw_signature_base64")]
     public string RawSignatureBase64 { get; set; } = string.Empty;
 
@@ -133,40 +145,15 @@ public sealed class CryptoSignResponse
         get => SignedPayload;
         set => SignedPayload = value ?? string.Empty;
     }
-
-    [JsonPropertyName("encrypted")]
-    public bool Encrypted
-    {
-        get; set;
-    }
-
-    [JsonPropertyName("signed")]
-    public bool Signed
-    {
-        get; set;
-    }
 }
 
-public sealed class CryptoVerifyRequest
+public sealed class CryptoVerifyRequest : CryptoPayloadRequestBase
 {
-    [JsonPropertyName("content")]
-    public string Content { get; set; } = string.Empty;
-
-    [JsonPropertyName("payload")]
-    public string Payload
-    {
-        get => Content;
-        set => Content = value ?? string.Empty;
-    }
-
     [JsonPropertyName("signature")]
     public string Signature { get; set; } = string.Empty;
 
     [JsonPropertyName("public_key_pem")]
     public string PublicKeyPem { get; set; } = string.Empty;
-
-    [JsonPropertyName("cert_pem")]
-    public string CertPem { get; set; } = string.Empty;
 
     [JsonPropertyName("ca_cert_pem")]
     public string CaCertPem { get; set; } = string.Empty;
@@ -180,18 +167,12 @@ public sealed class CryptoVerifyRequest
         get => KeyringPem;
         set => KeyringPem = value ?? string.Empty;
     }
-
-    [JsonPropertyName("secure_key")]
-    public string SecureKey { get; set; } = string.Empty;
 }
 
-public sealed class CryptoVerifyResponse
+public sealed class CryptoVerifyResponse : CryptoEnvelopeResponseBase
 {
     [JsonPropertyName("valid")]
-    public bool Valid
-    {
-        get; set;
-    }
+    public bool Valid { get; set; }
 
     [JsonPropertyName("verified")]
     public bool Verified
@@ -199,9 +180,6 @@ public sealed class CryptoVerifyResponse
         get => Valid;
         set => Valid = value;
     }
-
-    [JsonPropertyName("format")]
-    public string Format { get; set; } = string.Empty;
 
     [JsonPropertyName("algorithm")]
     public string Algorithm { get; set; } = string.Empty;
@@ -227,18 +205,6 @@ public sealed class CryptoVerifyResponse
     [JsonPropertyName("fingerprint")]
     public string Fingerprint { get; set; } = string.Empty;
 
-    [JsonPropertyName("encrypted")]
-    public bool Encrypted
-    {
-        get; set;
-    }
-
-    [JsonPropertyName("signed")]
-    public bool Signed
-    {
-        get; set;
-    }
-
     [JsonPropertyName("unwrapped_content")]
     public string UnwrappedContent { get; set; } = string.Empty;
 
@@ -262,18 +228,9 @@ public sealed class CryptoVerifyResponse
 
 public sealed class EnvelopeInspectionResult
 {
-    public bool IsEncrypted
-    {
-        get; set;
-    }
-    public bool IsSigned
-    {
-        get; set;
-    }
-    public bool IsDetachedSignature
-    {
-        get; set;
-    }
+    public bool IsEncrypted { get; set; }
+    public bool IsSigned { get; set; }
+    public bool IsDetachedSignature { get; set; }
     public string SignatureFormat { get; set; } = string.Empty;
     public string SignatureBase64 { get; set; } = string.Empty;
     public string UnwrappedContent { get; set; } = string.Empty;

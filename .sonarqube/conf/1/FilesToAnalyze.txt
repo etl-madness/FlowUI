@@ -1,0 +1,15 @@
+﻿C:\Users\U00001\source\repos\etl-madness\flowUI\FlowUI.Tests\AuthServicesTests.cs
+C:\Users\U00001\source\repos\etl-madness\flowUI\FlowUI.Tests\CatalogServiceTests.cs
+C:\Users\U00001\source\repos\etl-madness\flowUI\FlowUI.Tests\DocsServiceTests.cs
+C:\Users\U00001\source\repos\etl-madness\flowUI\FlowUI.Tests\FlowApiClientTests.cs
+C:\Users\U00001\source\repos\etl-madness\flowUI\FlowUI.Tests\FlowCryptoServiceTests.cs
+C:\Users\U00001\source\repos\etl-madness\flowUI\FlowUI.Tests\ModelsTests.cs
+C:\Users\U00001\source\repos\etl-madness\flowUI\FlowUI.Tests\StudioStateServiceTests.cs
+C:\Users\U00001\source\repos\etl-madness\flowUI\FlowUI.Tests\XmlGeneratorServiceTests.cs
+C:\Users\U00001\source\repos\etl-madness\flowUI\FlowUI.Tests\XmlImporterServiceTests.cs
+C:\Users\U00001\.nuget\packages\microsoft.net.test.sdk\17.14.1\build\net8.0\Microsoft.NET.Test.Sdk.Program.cs
+C:\Users\U00001\.nuget\packages\microsoft.testplatform.testhost\17.14.1\build\net8.0\x64\testhost.exe
+C:\Users\U00001\.nuget\packages\microsoft.testplatform.testhost\17.14.1\build\net8.0\x64\testhost.dll
+C:\Users\U00001\.nuget\packages\xunit.runner.visualstudio\3.1.4\build\net8.0\xunit.abstractions.dll
+C:\Users\U00001\.nuget\packages\xunit.runner.visualstudio\3.1.4\build\net8.0\xunit.runner.visualstudio.testadapter.dll
+C:\Users\U00001\source\repos\etl-madness\flowUI\FlowUI.Tests\TestResults\4c2d9a68-3ae6-4086-8a3c-303f689da66a\coverage.opencover.xml

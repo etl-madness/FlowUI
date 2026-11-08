@@ -37,6 +37,8 @@ dotnet build FlowUI/FlowUI.csproj -c Release
 # Set the target go-flowAPI URL and UI port, then launch:
 $env:FLOW_API_URL = "http://localhost:8080"
 $env:FLOW_UI_PORT = "5080"
+# Optional: override default HTTPS binding for local HTTP usage
+$env:FLOW_UI_SCHEME = "http"
 dotnet run --project FlowUI/FlowUI.csproj
 ```
 
@@ -66,7 +68,8 @@ dotnet publish FlowUI/FlowUI.csproj -c Release -r linux-x64 --self-contained tru
 | `FLOW_API_URL` | `""` | Full base URL of `go-flowAPI` (e.g., `http://localhost:8080`). Takes precedence over `FLOW_API_HOST` / `FLOW_API_PORT`. |
 | `FLOW_API_HOST` | `""` | Hostname or scheme+host of `go-flowAPI` (e.g., `localhost` or `https://flow-api.internal`) if `FLOW_API_URL` is not set. |
 | `FLOW_API_PORT` | `""` | Port of `go-flowAPI` (e.g., `8080`) combined with `FLOW_API_HOST`. |
-| `FLOW_UI_PORT` | `""` | HTTP port that `FlowUI` binds to (binds `http://localhost:<port>` locally, or `http://0.0.0.0:<port>` when `DOTNET_RUNNING_IN_CONTAINER=true`). Ignored if `ASPNETCORE_URLS` is explicitly set. |
+| `FLOW_UI_PORT` | `""` | UI port that `FlowUI` binds to. Combined with `FLOW_UI_SCHEME` and host (`localhost` locally, `0.0.0.0` when `DOTNET_RUNNING_IN_CONTAINER=true`). Ignored if `ASPNETCORE_URLS` is explicitly set. |
+| `FLOW_UI_SCHEME` | `"https"` | UI URL scheme used with `FLOW_UI_PORT`. Set to `http` to override the default secure binding when needed (for example, local/dev scenarios without TLS). |
 | `FLOW_UI_AUTH_MODE` | `"ApiBasic"` | Active UI authentication mode: `ApiBasic` (interactive login against `go-flowAPI`) or `Windows` (Windows Integrated / AD identity). |
 | `FLOW_API_BASIC_AUTH` | `""` | Optional Base64 `user:password` service token used only when `FLOW_UI_AUTH_MODE=Windows`. |
 | `FLOW_UI_ADMIN_USER` | `""` | Optional bootstrap admin username hint. |

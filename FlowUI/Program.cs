@@ -15,7 +15,7 @@ if (!string.IsNullOrWhiteSpace(AppConfig.UiPort) &&
         "true",
         StringComparison.OrdinalIgnoreCase);
     var bindHost = inContainer ? "0.0.0.0" : "localhost";
-    builder.WebHost.UseUrls($"http://{bindHost}:{AppConfig.UiPort}");
+    builder.WebHost.UseUrls($"{AppConfig.UiScheme}://{bindHost}:{AppConfig.UiPort}");
 }
 
 // Add Razor Components (Interactive Server) & Radzen UI Services

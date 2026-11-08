@@ -33,7 +33,8 @@ Copy-Item .env.example .env
 
 | Variable | Default in Compose | Description |
 | :--- | :--- | :--- |
-| `FLOW_UI_PORT` | `5185` | Host and container HTTP port for `FlowUI`. |
+| `FLOW_UI_PORT` | `5185` | Host and container UI port for `FlowUI`. |
+| `FLOW_UI_SCHEME` | `https` | UI scheme used by `FlowUI` when binding with `FLOW_UI_PORT`. Set `FLOW_UI_SCHEME=http` to override for non-TLS local/dev environments. |
 | `FLOW_API_HOST` | `http://host.docker.internal` | Base scheme + hostname for `go-flowAPI` (`http://go-flow-api` in `api`/`full` compose files). |
 | `FLOW_API_PORT` | `8080` | Port for `go-flowAPI`. |
 | `FLOW_API_URL` | *(optional)* | Full URL override for `go-flowAPI` (overrides `FLOW_API_HOST` + `FLOW_API_PORT` if set). |

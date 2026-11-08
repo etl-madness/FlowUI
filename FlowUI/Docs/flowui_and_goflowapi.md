@@ -58,7 +58,8 @@ dotnet publish FlowUI/FlowUI.csproj -c Release -r win-x64 --self-contained true 
 | `FLOW_API_URL` | *(computed)* | Full base URL of `go-flowAPI` (e.g., `http://localhost:8080`). Overrides `FLOW_API_HOST` and `FLOW_API_PORT` when set. |
 | `FLOW_API_HOST` | `localhost` | Hostname or IP address of `go-flowAPI` when `FLOW_API_URL` is not explicitly set. |
 | `FLOW_API_PORT` | `8080` | TCP port of `go-flowAPI` when `FLOW_API_URL` is not explicitly set. |
-| `FLOW_UI_PORT` | `8081` | HTTP port that the FlowUI Kestrel server binds to (`http://0.0.0.0:<port>`). |
+| `FLOW_UI_PORT` | `8081` | UI port that the FlowUI Kestrel server binds to. Combined with `FLOW_UI_SCHEME`. |
+| `FLOW_UI_SCHEME` | `https` | URL scheme for the FlowUI Kestrel binding. Set `FLOW_UI_SCHEME=http` to override the secure default in non-TLS local/dev environments. |
 | `FLOW_UI_AUTH_MODE` | `basic` | Authentication mode (`none` / `off` / `false` / `disabled` to bypass login, or `basic` to require sign-in). |
 | `FLOW_API_BASIC_AUTH` | *(empty)* | Optional `username:password` credential pair used for HTTP Basic Auth against `go-flowAPI` prior to interactive user sign-in. |
 | `FLOW_UI_ADMIN_USER` | `admin` | Default bootstrap administrator username. |

@@ -158,16 +158,19 @@ public sealed class FlowCryptoService
     public string DecryptPayload(string armoredText, string passphrase) => DecryptArmored(armoredText, passphrase);
     public string DecryptContent(string armoredText, string passphrase) => DecryptArmored(armoredText, passphrase);
 
-    public byte[] EncryptBytes(byte[] plaintext, string passphrase)
-    {
-        var salt = RandomNumberGenerator.GetBytes(SaltLength);
-        var nonce = RandomNumberGenerator.GetBytes(NonceLength);
-        var key = Rfc2898DeriveBytes.Pbkdf2(
+    private static byte[] DerivePbkdf2Key(string passphrase, ReadOnlySpan<byte> salt) =>
+        Rfc2898DeriveBytes.Pbkdf2(
             Encoding.UTF8.GetBytes(passphrase),
             salt,
             Pbkdf2Iterations,
             HashAlgorithmName.SHA256,
             DefaultKeyLength);
+
+    public byte[] EncryptBytes(byte[] plaintext, string passphrase)
+    {
+        var salt = RandomNumberGenerator.GetBytes(SaltLength);
+        var nonce = RandomNumberGenerator.GetBytes(NonceLength);
+        var key = DerivePbkdf2Key(passphrase, salt);
 
         try
         {
@@ -203,12 +206,7 @@ public sealed class FlowCryptoService
         var ciphertext = packedPayload.AsSpan(SaltLength + NonceLength, cipherLen);
         var tag = packedPayload.AsSpan(SaltLength + NonceLength + cipherLen, TagLength);
 
-        var key = Rfc2898DeriveBytes.Pbkdf2(
-            Encoding.UTF8.GetBytes(passphrase),
-            salt,
-            Pbkdf2Iterations,
-            HashAlgorithmName.SHA256,
-            DefaultKeyLength);
+        var key = DerivePbkdf2Key(passphrase, salt);
 
         try
         {
@@ -325,6 +323,32 @@ public sealed class FlowCryptoService
         return (ecdsa.ExportECPrivateKeyPem(), ecdsa.ExportSubjectPublicKeyInfoPem());
     }
 
+    private static string ExportCodeSigningCertificatePem(CertificateRequest certReq, X509KeyUsageFlags usageFlags, int validDays)
+    {
+        certReq.CertificateExtensions.Add(new X509BasicConstraintsExtension(true, false, 0, true));
+        certReq.CertificateExtensions.Add(new X509KeyUsageExtension(usageFlags, false));
+        certReq.CertificateExtensions.Add(new X509EnhancedKeyUsageExtension(
+            new OidCollection { new Oid("1.3.6.1.5.5.7.3.3") }, false));
+
+        using var cert = certReq.CreateSelfSigned(
+            DateTimeOffset.UtcNow.AddHours(-1),
+            DateTimeOffset.UtcNow.AddDays(validDays > 0 ? validDays : 365));
+        return cert.ExportCertificatePem();
+    }
+
+    private static CryptoKeygenResponse BuildKeygenResponse(string algorithm, string privPem, string pubPem, string certPem)
+    {
+        var fpBytes = SHA256.HashData(Encoding.UTF8.GetBytes(string.IsNullOrEmpty(certPem) ? pubPem : certPem));
+        return new CryptoKeygenResponse
+        {
+            Algorithm = algorithm,
+            PrivateKeyPem = privPem,
+            PublicKeyPem = pubPem,
+            CertificatePem = certPem,
+            Fingerprint = Convert.ToHexString(fpBytes[..16])
+        };
+    }
+
     public (string PrivateKeyPem, string CertificatePem, string PublicKeyPem) GenerateSelfSignedCertLocal(
         string commonName,
         string organization = "Flow Studio",
@@ -335,18 +359,12 @@ public sealed class FlowCryptoService
         using var ecdsa = ECDsa.Create(ECCurve.NamedCurves.nistP256);
         var privPem = ecdsa.ExportECPrivateKeyPem();
         var pubPem = ecdsa.ExportSubjectPublicKeyInfoPem();
-
         var certReq = new CertificateRequest($"CN={cn}, O={org}", ecdsa, HashAlgorithmName.SHA256);
-        certReq.CertificateExtensions.Add(new X509BasicConstraintsExtension(true, false, 0, true));
-        certReq.CertificateExtensions.Add(new X509KeyUsageExtension(
-            X509KeyUsageFlags.DigitalSignature | X509KeyUsageFlags.KeyCertSign, false));
-        certReq.CertificateExtensions.Add(new X509EnhancedKeyUsageExtension(
-            new OidCollection { new Oid("1.3.6.1.5.5.7.3.3") }, false));
-
-        using var cert = certReq.CreateSelfSigned(
-            DateTimeOffset.UtcNow.AddHours(-1),
-            DateTimeOffset.UtcNow.AddDays(validDays > 0 ? validDays : 365));
-        return (privPem, cert.ExportCertificatePem(), pubPem);
+        var certPem = ExportCodeSigningCertificatePem(
+            certReq,
+            X509KeyUsageFlags.DigitalSignature | X509KeyUsageFlags.KeyCertSign,
+            validDays);
+        return (privPem, certPem, pubPem);
     }
 
     public byte[] SignOpenSslLocal(byte[] dataToSign, string privateKeyPem, string? passphrase = null)
@@ -428,30 +446,14 @@ public sealed class FlowCryptoService
             using var ecdsa = ECDsa.Create(curve);
             var privPem = ecdsa.ExportECPrivateKeyPem();
             var pubPem = ecdsa.ExportSubjectPublicKeyInfoPem();
-            var certPem = string.Empty;
+            var certPem = req.GenerateCert
+                ? ExportCodeSigningCertificatePem(
+                    new CertificateRequest($"CN={cn}, O=Flow", ecdsa, HashAlgorithmName.SHA256),
+                    X509KeyUsageFlags.DigitalSignature | X509KeyUsageFlags.KeyCertSign,
+                    days)
+                : string.Empty;
 
-            if (req.GenerateCert)
-            {
-                var certReq = new CertificateRequest($"CN={cn}, O=Flow", ecdsa, HashAlgorithmName.SHA256);
-                certReq.CertificateExtensions.Add(new X509BasicConstraintsExtension(true, false, 0, true));
-                certReq.CertificateExtensions.Add(new X509KeyUsageExtension(
-                    X509KeyUsageFlags.DigitalSignature | X509KeyUsageFlags.KeyCertSign, false));
-                certReq.CertificateExtensions.Add(new X509EnhancedKeyUsageExtension(
-                    new OidCollection { new Oid("1.3.6.1.5.5.7.3.3") }, false)); // Code Signing
-
-                using var cert = certReq.CreateSelfSigned(DateTimeOffset.UtcNow.AddHours(-1), DateTimeOffset.UtcNow.AddDays(days));
-                certPem = cert.ExportCertificatePem();
-            }
-
-            var fpBytes = SHA256.HashData(Encoding.UTF8.GetBytes(string.IsNullOrEmpty(certPem) ? pubPem : certPem));
-            return new CryptoKeygenResponse
-            {
-                Algorithm = alg.Contains("384") ? "ECDSA-P384" : "ECDSA-P256",
-                PrivateKeyPem = privPem,
-                PublicKeyPem = pubPem,
-                CertificatePem = certPem,
-                Fingerprint = Convert.ToHexString(fpBytes[..16])
-            };
+            return BuildKeygenResponse(alg.Contains("384") ? "ECDSA-P384" : "ECDSA-P256", privPem, pubPem, certPem);
         }
         else
         {
@@ -459,30 +461,14 @@ public sealed class FlowCryptoService
             using var rsa = RSA.Create(bits);
             var privPem = rsa.ExportRSAPrivateKeyPem();
             var pubPem = rsa.ExportSubjectPublicKeyInfoPem();
-            var certPem = string.Empty;
+            var certPem = req.GenerateCert
+                ? ExportCodeSigningCertificatePem(
+                    new CertificateRequest($"CN={cn}, O=Flow", rsa, HashAlgorithmName.SHA256, RSASignaturePadding.Pss),
+                    X509KeyUsageFlags.DigitalSignature | X509KeyUsageFlags.KeyEncipherment | X509KeyUsageFlags.KeyCertSign,
+                    days)
+                : string.Empty;
 
-            if (req.GenerateCert)
-            {
-                var certReq = new CertificateRequest($"CN={cn}, O=Flow", rsa, HashAlgorithmName.SHA256, RSASignaturePadding.Pss);
-                certReq.CertificateExtensions.Add(new X509BasicConstraintsExtension(true, false, 0, true));
-                certReq.CertificateExtensions.Add(new X509KeyUsageExtension(
-                    X509KeyUsageFlags.DigitalSignature | X509KeyUsageFlags.KeyEncipherment | X509KeyUsageFlags.KeyCertSign, false));
-                certReq.CertificateExtensions.Add(new X509EnhancedKeyUsageExtension(
-                    new OidCollection { new Oid("1.3.6.1.5.5.7.3.3") }, false)); // Code Signing
-
-                using var cert = certReq.CreateSelfSigned(DateTimeOffset.UtcNow.AddHours(-1), DateTimeOffset.UtcNow.AddDays(days));
-                certPem = cert.ExportCertificatePem();
-            }
-
-            var fpBytes = SHA256.HashData(Encoding.UTF8.GetBytes(string.IsNullOrEmpty(certPem) ? pubPem : certPem));
-            return new CryptoKeygenResponse
-            {
-                Algorithm = $"RSA-{bits}",
-                PrivateKeyPem = privPem,
-                PublicKeyPem = pubPem,
-                CertificatePem = certPem,
-                Fingerprint = Convert.ToHexString(fpBytes[..16])
-            };
+            return BuildKeygenResponse($"RSA-{bits}", privPem, pubPem, certPem);
         }
     }
 
@@ -500,24 +486,11 @@ public sealed class FlowCryptoService
             dataToSign = Encoding.UTF8.GetBytes(encryptedInner);
         }
 
-        byte[] sigBytes;
-        string sigFormat;
-
         var pem = req.PrivateKeyPem.Trim();
-        if (pem.Contains("EC PRIVATE KEY", StringComparison.OrdinalIgnoreCase))
-        {
-            using var ecdsa = ECDsa.Create();
-            ecdsa.ImportFromPem(pem);
-            sigBytes = ecdsa.SignData(dataToSign, HashAlgorithmName.SHA256, DSASignatureFormat.Rfc3279DerSequence);
-            sigFormat = "OPENSSL-ECDSA-SHA256";
-        }
-        else
-        {
-            using var rsa = RSA.Create();
-            rsa.ImportFromPem(pem);
-            sigBytes = rsa.SignData(dataToSign, HashAlgorithmName.SHA256, RSASignaturePadding.Pss);
-            sigFormat = "OPENSSL-RSA-SHA256";
-        }
+        var sigBytes = SignOpenSslLocal(dataToSign, pem, req.Passphrase);
+        var sigFormat = pem.Contains("EC PRIVATE KEY", StringComparison.OrdinalIgnoreCase)
+            ? "OPENSSL-ECDSA-SHA256"
+            : "OPENSSL-RSA-SHA256";
 
         var detached = WrapSignatureOnly(sigFormat, sigBytes);
         var wrapped = WrapSignedPayload(sigFormat, sigBytes, dataToSign);
@@ -540,6 +513,16 @@ public sealed class FlowCryptoService
         };
     }
 
+    private static CryptoVerifyResponse CreateVerifyFailure(string format, bool signed, bool encrypted, string unwrapped, string error) => new()
+    {
+        Valid = false,
+        Format = format,
+        Signed = signed,
+        Encrypted = encrypted,
+        UnwrappedContent = unwrapped,
+        ErrorMessage = error
+    };
+
     /// <summary>
     /// Native .NET OpenSSL-compatible verification fallback for RSA and ECDSA PEM public keys / X.509 certificates.
     /// </summary>
@@ -561,13 +544,7 @@ public sealed class FlowCryptoService
         {
             if (!TryParseSignedPayload(raw, out format, out sigBytes, out dataBytes))
             {
-                return new CryptoVerifyResponse
-                {
-                    Valid = false,
-                    Signed = true,
-                    Encrypted = wasEncrypted,
-                    ErrorMessage = "Malformed FLOWSIGNED:v1: envelope."
-                };
+                return CreateVerifyFailure("OPENSSL", true, wasEncrypted, string.Empty, "Malformed FLOWSIGNED:v1: envelope.");
             }
         }
         else if (!string.IsNullOrWhiteSpace(req.Signature))
@@ -587,14 +564,7 @@ public sealed class FlowCryptoService
         }
         else
         {
-            return new CryptoVerifyResponse
-            {
-                Valid = false,
-                Signed = false,
-                Encrypted = wasEncrypted,
-                UnwrappedContent = raw,
-                ErrorMessage = "Payload is not signed."
-            };
+            return CreateVerifyFailure("OPENSSL", false, wasEncrypted, raw, "Payload is not signed.");
         }
 
         var unwrappedStr = Encoding.UTF8.GetString(dataBytes);
@@ -610,15 +580,8 @@ public sealed class FlowCryptoService
         var keyOrCertPem = !string.IsNullOrWhiteSpace(req.CertPem) ? req.CertPem.Trim() : req.PublicKeyPem.Trim();
         if (string.IsNullOrWhiteSpace(keyOrCertPem))
         {
-            return new CryptoVerifyResponse
-            {
-                Valid = false,
-                Format = format,
-                Signed = true,
-                Encrypted = wasEncrypted,
-                UnwrappedContent = unwrappedStr,
-                ErrorMessage = "Signed envelope unwrapped, but no public key or X.509 certificate was provided for verification."
-            };
+            return CreateVerifyFailure(format, true, wasEncrypted, unwrappedStr,
+                "Signed envelope unwrapped, but no public key or X.509 certificate was provided for verification.");
         }
 
         X509Certificate2? cert = null;
@@ -632,51 +595,18 @@ public sealed class FlowCryptoService
             {
                 cert = X509Certificate2.CreateFromPem(keyOrCertPem);
                 signerInfo = cert.GetNameInfo(X509NameType.SimpleName, false);
-                using var rsa = cert.GetRSAPublicKey();
-                if (rsa is not null)
-                {
-                    valid = rsa.VerifyData(dataBytes, sigBytes, HashAlgorithmName.SHA256, RSASignaturePadding.Pss);
-                    alg = "RSA-SHA256";
-                }
-                else
-                {
-                    using var ecdsa = cert.GetECDsaPublicKey();
-                    if (ecdsa is not null)
-                    {
-                        valid = ecdsa.VerifyData(dataBytes, sigBytes, HashAlgorithmName.SHA256, DSASignatureFormat.Rfc3279DerSequence);
-                        alg = "ECDSA-SHA256";
-                    }
-                }
+                alg = cert.GetRSAPublicKey() is not null ? "RSA-SHA256" : "ECDSA-SHA256";
+                valid = VerifyOpenSslLocal(dataBytes, sigBytes, keyOrCertPem);
             }
             else
             {
-                try
-                {
-                    using var rsa = RSA.Create();
-                    rsa.ImportFromPem(keyOrCertPem);
-                    valid = rsa.VerifyData(dataBytes, sigBytes, HashAlgorithmName.SHA256, RSASignaturePadding.Pss);
-                    alg = "RSA-SHA256";
-                }
-                catch
-                {
-                    using var ecdsa = ECDsa.Create();
-                    ecdsa.ImportFromPem(keyOrCertPem);
-                    valid = ecdsa.VerifyData(dataBytes, sigBytes, HashAlgorithmName.SHA256, DSASignatureFormat.Rfc3279DerSequence);
-                    alg = "ECDSA-SHA256";
-                }
+                valid = VerifyOpenSslLocal(dataBytes, sigBytes, keyOrCertPem);
+                alg = keyOrCertPem.Contains("RSA", StringComparison.OrdinalIgnoreCase) ? "RSA-SHA256" : format;
             }
         }
         catch (Exception ex)
         {
-            return new CryptoVerifyResponse
-            {
-                Valid = false,
-                Format = format,
-                Signed = true,
-                Encrypted = wasEncrypted,
-                UnwrappedContent = unwrappedStr,
-                ErrorMessage = ex.Message
-            };
+            return CreateVerifyFailure(format, true, wasEncrypted, unwrappedStr, ex.Message);
         }
 
         var resp = new CryptoVerifyResponse

@@ -65,24 +65,14 @@ public sealed class StudioStateService
     public string ActiveTab { get; private set; } = "pipeline"; // pipeline, config, options, runner, logs, settings
     public string ActiveTheme { get; private set; } = _lastSavedTheme;
 
-    public static readonly IReadOnlyList<(string Id, string Label)> Themes = new List<(string, string)>
-    {
-        ("midnight", "Midnight Slate (Dark)"),
-        ("obsidian", "Obsidian Carbon (Dark)"),
-        ("dracula", "Dracula (Dark)"),
-        ("nord", "Nordic Frost (Dark)"),
-        ("monokai", "Monokai Pro (Dark)"),
-        ("gruvbox-dark", "Gruvbox (Dark)"),
-        ("solarized-dark", "Solarized (Dark)"),
-        ("matrix", "Matrix Terminal (Dark)"),
-        ("synthwave", "Synthwave Neon (Dark)"),
-        ("daylight", "Daylight Clean (Light)"),
-        ("github-light", "GitHub Light (Light)"),
-        ("solarized-light", "Solarized (Light)"),
-        ("nord-light", "Nord Snow (Light)"),
-        ("latte", "Catppuccin Latte (Light)"),
-        ("paper", "Warm Paper (Light)")
-    };
+    public static readonly IReadOnlyList<(string Id, string Label)> Themes =
+    [
+        ("midnight", "Midnight Slate (Dark)"), ("obsidian", "Obsidian Carbon (Dark)"), ("dracula", "Dracula (Dark)"),
+        ("nord", "Nordic Frost (Dark)"), ("monokai", "Monokai Pro (Dark)"), ("gruvbox-dark", "Gruvbox (Dark)"),
+        ("solarized-dark", "Solarized (Dark)"), ("matrix", "Matrix Terminal (Dark)"), ("synthwave", "Synthwave Neon (Dark)"),
+        ("daylight", "Daylight Clean (Light)"), ("github-light", "GitHub Light (Light)"), ("solarized-light", "Solarized (Light)"),
+        ("nord-light", "Nord Snow (Light)"), ("latte", "Catppuccin Latte (Light)"), ("paper", "Warm Paper (Light)")
+    ];
 
     // =========================================================================
     // Connectivity & Toast Banner
@@ -289,6 +279,34 @@ public sealed class StudioStateService
 
     public long NextNodeId() => Interlocked.Increment(ref _nodeIdCounter);
 
+    private PipelineNode CreateSeedNode(string section, string nodeType, Dictionary<string, string> attrs, string? contentText = null) => new()
+    {
+        Id = NextNodeId(),
+        Section = section,
+        NodeType = nodeType,
+        SequenceOrder = 1,
+        Attributes = new Dictionary<string, string>(attrs, StringComparer.OrdinalIgnoreCase),
+        ContentText = contentText ?? string.Empty
+    };
+
+    private void PopulateDefaultSetupNodes(string varName, string varVal, string workload, string assertId)
+    {
+        CurrentDraft.VariableNodes.Add(CreateSeedNode("variables", "variable", new() { ["name"] = varName, ["value"] = varVal }));
+        CurrentDraft.DatabaseNodes.Add(CreateSeedNode("databases", "database", new()
+        {
+            ["name"] = "default_db",
+            ["driver"] = "sqlserver",
+            ["connection_string"] = "Server=localhost;Database=DB;Trusted_Connection=True;TrustServerCertificate=True;",
+            ["workload"] = workload
+        }));
+        CurrentDraft.PreflightNodes.Add(CreateSeedNode("preflight", "assert", new()
+        {
+            ["id"] = assertId,
+            ["db"] = "default_db",
+            ["equals"] = "1"
+        }, "SELECT 1;"));
+    }
+
     private void SeedDefaultDraft()
     {
         CurrentDraft = new PipelineDraft
@@ -298,63 +316,13 @@ public sealed class StudioStateService
             Description = "Visual pipeline designed in Flow Builder"
         };
 
-        CurrentDraft.VariableNodes.Add(new PipelineNode
+        PopulateDefaultSetupNodes("env", "production", "OLTP", "check_db_db");
+        CurrentDraft.FlowNodes.Add(CreateSeedNode("flow", "sql", new()
         {
-            Id = NextNodeId(),
-            Section = "variables",
-            NodeType = "variable",
-            SequenceOrder = 1,
-            Attributes = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-            {
-                ["name"] = "env",
-                ["value"] = "production"
-            }
-        });
-
-        CurrentDraft.DatabaseNodes.Add(new PipelineNode
-        {
-            Id = NextNodeId(),
-            Section = "databases",
-            NodeType = "database",
-            SequenceOrder = 1,
-            Attributes = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-            {
-                ["name"] = "default_db",
-                ["driver"] = "sqlserver",
-                ["connection_string"] = "Server=localhost;Database=DB;Trusted_Connection=True;TrustServerCertificate=True;",
-                ["workload"] = "OLTP"
-            }
-        });
-
-        CurrentDraft.PreflightNodes.Add(new PipelineNode
-        {
-            Id = NextNodeId(),
-            Section = "preflight",
-            NodeType = "assert",
-            SequenceOrder = 1,
-            Attributes = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-            {
-                ["id"] = "check_db_db",
-                ["db"] = "default_db",
-                ["equals"] = "1"
-            },
-            ContentText = "SELECT 1;"
-        });
-
-        CurrentDraft.FlowNodes.Add(new PipelineNode
-        {
-            Id = NextNodeId(),
-            Section = "flow",
-            NodeType = "sql",
-            SequenceOrder = 1,
-            Attributes = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-            {
-                ["id"] = "verify_connection",
-                ["db"] = "default_db",
-                ["output_var"] = "server_name"
-            },
-            ContentText = "SELECT @@SERVERNAME AS server_name;"
-        });
+            ["id"] = "verify_connection",
+            ["db"] = "default_db",
+            ["output_var"] = "server_name"
+        }, "SELECT @@SERVERNAME AS server_name;"));
 
         RegenerateXmlFromDraft();
     }
@@ -573,49 +541,28 @@ public sealed class StudioStateService
                 : description.Trim()
         };
 
-        CurrentDraft.VariableNodes.Add(new PipelineNode
-        {
-            Id = NextNodeId(),
-            Section = "variables",
-            NodeType = "variable",
-            SequenceOrder = 1,
-            Attributes = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-            {
-                ["name"] = "ENV",
-                ["value"] = "DEV"
-            }
-        });
+        PopulateDefaultSetupNodes("ENV", "DEV", "oltp", "check_db_ready");
+        RegenerateXmlFromDraft();
+    }
 
-        CurrentDraft.DatabaseNodes.Add(new PipelineNode
-        {
-            Id = NextNodeId(),
-            Section = "databases",
-            NodeType = "database",
-            SequenceOrder = 1,
-            Attributes = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-            {
-                ["name"] = "default_db",
-                ["driver"] = "sqlserver",
-                ["connection_string"] = "Server=localhost;Database=DB;Trusted_Connection=True;TrustServerCertificate=True;",
-                ["workload"] = "oltp"
-            }
-        });
+    public void LoadDefaultConfigDraft(string? name = null, string? description = null) =>
+        SeedDefaultConfigDraft(name, description);
 
-        CurrentDraft.PreflightNodes.Add(new PipelineNode
+    public void LoadDefaultOptionsDraft(string? name = null, string? description = null)
+    {
+        CurrentDraft = new PipelineDraft
         {
-            Id = NextNodeId(),
-            Section = "preflight",
-            NodeType = "assert",
-            SequenceOrder = 1,
-            Attributes = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-            {
-                ["id"] = "check_db_ready",
-                ["db"] = "default_db",
-                ["equals"] = "1"
-            },
-            ContentText = "SELECT 1;"
-        });
-
+            ApiArtifactId = null,
+            ArtifactType = "options",
+            Name = string.IsNullOrWhiteSpace(name) ? "OPTIONS_DEV_DEFAULT" : name.Trim(),
+            Description = string.IsNullOrWhiteSpace(description)
+                ? "Flow CLI Options designed in Flow Builder"
+                : description.Trim()
+        };
+        foreach (var (flag, val) in new[] { ("vars", "ENV=DEV"), ("node-output", "true"), ("debug", "true") })
+        {
+            CurrentDraft.OptionEntries.Add(new FlowOptionEntry { Id = NextNodeId(), Flag = flag, Value = val });
+        }
         RegenerateXmlFromDraft();
     }
 
@@ -1022,24 +969,9 @@ public sealed class StudioStateService
         }
         else if (normType == "options")
         {
-            CurrentDraft.OptionEntries.Add(new FlowOptionEntry
-            {
-                Id = NextNodeId(),
-                Flag = "vars",
-                Value = "ENV=DEV"
-            });
-            CurrentDraft.OptionEntries.Add(new FlowOptionEntry
-            {
-                Id = NextNodeId(),
-                Flag = "node-output",
-                Value = "true"
-            });
-            CurrentDraft.OptionEntries.Add(new FlowOptionEntry
-            {
-                Id = NextNodeId(),
-                Flag = "debug",
-                Value = "true"
-            });
+            LoadDefaultOptionsDraft(
+                string.IsNullOrWhiteSpace(name) ? defaultName : name.Trim(),
+                string.IsNullOrWhiteSpace(description) ? defaultDesc : description.Trim());
         }
 
         RegenerateXmlFromDraft();
@@ -1049,18 +981,21 @@ public sealed class StudioStateService
         await LogEventAsync("DESIGNER", "NEW_DRAFT", normType, CurrentDraft.Name, "SUCCESS", 0, null);
     }
 
+    public List<ArtifactRecord> GetArtifactListForType(string? artifactType) =>
+        (artifactType ?? "pipeline").Trim().ToLowerInvariant() switch
+        {
+            "config" => Configs,
+            "options" => OptionsList,
+            _ => Pipelines
+        };
+
     public Task LoadPipelineArtifactAsync(ArtifactRecord artifact) =>
         LoadArtifactRecordAsync(artifact, "pipeline");
 
     public async Task LoadDatabaseArtifactByIdAsync(string artifactType, int id)
     {
         var normType = (artifactType ?? "pipeline").Trim().ToLowerInvariant();
-        var list = normType switch
-        {
-            "config" => Configs,
-            "options" => OptionsList,
-            _ => Pipelines
-        };
+        var list = GetArtifactListForType(normType);
 
         var found = list.FirstOrDefault(a => a.Id == id)
                  ?? await _api.GetArtifactByIdAsync(normType, id);
@@ -1087,12 +1022,7 @@ public sealed class StudioStateService
         var sw = Stopwatch.StartNew();
         try
         {
-            var cachedList = normType switch
-            {
-                "config" => Configs,
-                "options" => OptionsList,
-                _ => Pipelines
-            };
+            var cachedList = GetArtifactListForType(normType);
             var cachedMatch = cachedList.FirstOrDefault(a =>
                 (artifact.Id > 0 && a.Id == artifact.Id) ||
                 (!string.IsNullOrWhiteSpace(artifact.Name) && string.Equals(a.Name, artifact.Name, StringComparison.OrdinalIgnoreCase)));
@@ -1273,12 +1203,7 @@ public sealed class StudioStateService
 
             await RefreshHealthAndArtifactsAsync();
 
-            var list = normType switch
-            {
-                "config" => Configs,
-                "options" => OptionsList,
-                _ => Pipelines
-            };
+            var list = GetArtifactListForType(normType);
             var refreshed = list.FirstOrDefault(a =>
                 string.Equals(a.Name, CurrentDraft.Name, StringComparison.OrdinalIgnoreCase));
             if (refreshed is not null && refreshed.Id > 0)

@@ -21,9 +21,12 @@ public sealed class UiAuthenticationService : AuthenticationStateProvider, IAuth
         _providers = providers.ToList();
         _apiClient = apiClient;
 
-        _activeProvider = _providers.FirstOrDefault(p =>
-            string.Equals(p.ProviderName, AppConfig.AuthMode, StringComparison.OrdinalIgnoreCase))
-            ?? _providers.First();
+        if (_providers.Count == 0)
+        {
+            throw new InvalidOperationException("At least one authentication provider must be registered.");
+        }
+
+        _activeProvider = FindProviderByName(AppConfig.AuthMode) ?? _providers[0];
     }
 
     public AppUser? CurrentUser => _currentUser;
@@ -46,8 +49,7 @@ public sealed class UiAuthenticationService : AuthenticationStateProvider, IAuth
 
     public void SetActiveProvider(string providerName)
     {
-        var match = _providers.FirstOrDefault(p =>
-            string.Equals(p.ProviderName, providerName, StringComparison.OrdinalIgnoreCase));
+        var match = FindProviderByName(providerName);
         if (match is not null)
         {
             _activeProvider = match;
@@ -79,8 +81,7 @@ public sealed class UiAuthenticationService : AuthenticationStateProvider, IAuth
         var provider = _activeProvider;
         if (!string.IsNullOrWhiteSpace(providerOverride))
         {
-            var found = _providers.FirstOrDefault(p =>
-                string.Equals(p.ProviderName, providerOverride, StringComparison.OrdinalIgnoreCase));
+            var found = FindProviderByName(providerOverride);
             if (found is not null)
             {
                 provider = found;
@@ -173,6 +174,25 @@ public sealed class UiAuthenticationService : AuthenticationStateProvider, IAuth
 
         var identity = new ClaimsIdentity(claims, _currentUser.AuthProvider);
         return Task.FromResult(new AuthenticationState(new ClaimsPrincipal(identity)));
+    }
+
+    private IUiAuthProvider? FindProviderByName(string? providerName)
+    {
+        if (string.IsNullOrWhiteSpace(providerName))
+        {
+            return null;
+        }
+
+        for (var i = 0; i < _providers.Count; i++)
+        {
+            var provider = _providers[i];
+            if (string.Equals(provider.ProviderName, providerName, StringComparison.OrdinalIgnoreCase))
+            {
+                return provider;
+            }
+        }
+
+        return null;
     }
 
     private void NotifyStateChanged()

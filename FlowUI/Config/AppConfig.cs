@@ -12,6 +12,7 @@ public static class AppConfig
     public const string DefaultApiBaseUrl = "";
     public const string DefaultApiBasicAuth = "";
     public const string DefaultUiPort = "";
+    public const string DefaultUiScheme = "https";
 
     public const string DefaultAuthMode = "ApiBasic"; // Options: ApiBasic, Windows
     public const string DefaultAdminUser = "";
@@ -23,6 +24,7 @@ public static class AppConfig
     public const string EnvApiPort = "FLOW_API_PORT";
     public const string EnvApiBasicAuth = "FLOW_API_BASIC_AUTH";
     public const string EnvUiPort = "FLOW_UI_PORT";
+    public const string EnvUiScheme = "FLOW_UI_SCHEME";
     public const string EnvUiAuthMode = "FLOW_UI_AUTH_MODE";
     public const string EnvUiAdminUser = "FLOW_UI_ADMIN_USER";
     public const string EnvUiAdminPassword = "FLOW_UI_ADMIN_PASSWORD";
@@ -31,6 +33,8 @@ public static class AppConfig
     public static readonly string ApiPort = ResolveEnv(EnvApiPort, DefaultApiPort);
 
     public static readonly string UiPort = ResolveEnv(EnvUiPort, DefaultUiPort);
+
+    public static readonly string UiScheme = ResolveUiScheme();
 
     public static readonly string ApiHost = ResolveEnv(EnvApiHost, DefaultApiSchemeAndHost).TrimEnd('/');
 
@@ -72,5 +76,13 @@ public static class AppConfig
 
         var port = ResolveEnv(EnvApiPort, DefaultApiPort);
         return string.IsNullOrWhiteSpace(port) ? host : $"{host}:{port}";
+    }
+
+    private static string ResolveUiScheme()
+    {
+        var value = ResolveEnv(EnvUiScheme, DefaultUiScheme);
+        return string.Equals(value, "http", StringComparison.OrdinalIgnoreCase)
+            ? "http"
+            : "https";
     }
 }
