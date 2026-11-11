@@ -228,5 +228,37 @@ public class ModelsTests
 
         var execResp = new ExecutePipelineResponse { Error = "boom" };
         Assert.Equal("boom", execResp.ErrorMessage);
+
+        var runRec = new PipelineRunRecord
+        {
+            DatabaseUserName = "dbo",
+            Sspid = "64"
+        };
+        Assert.Equal("dbo", runRec.DbUserName);
+        Assert.Equal("dbo", runRec.DatabaseUserName);
+        Assert.Equal("dbo", runRec.EffectiveDbUser);
+        Assert.Equal("64", runRec.Spid);
+        Assert.Equal("64", runRec.Sspid);
+        Assert.Equal("64", runRec.EffectiveSpid);
+
+        runRec.DatabaseUserName = string.Empty;
+        runRec.Sspid = string.Empty;
+        Assert.Equal("dbo", runRec.DbUserName);
+        Assert.Equal("64", runRec.Spid);
+
+        var evtRec = new PipelineEventRecord
+        {
+            UserName = "fallback_user",
+            Spid = "0",
+            OutputText = "SELECT 1 result"
+        };
+        Assert.Equal("fallback_user", evtRec.EffectiveDbUser);
+        Assert.Equal("-", evtRec.EffectiveSpid);
+        Assert.Equal("SELECT 1 result", evtRec.NodeOutput);
+        Assert.Equal("SELECT 1 result", evtRec.OutputText);
+        Assert.True(evtRec.HasOutputText);
+
+        evtRec.OutputText = string.Empty;
+        Assert.Equal("SELECT 1 result", evtRec.NodeOutput);
     }
 }
