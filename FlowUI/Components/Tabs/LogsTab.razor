@@ -22,7 +22,7 @@
 
     @if (_subTab == "runs")
     {
-        <div style="display:grid; grid-template-columns:460px 1fr; gap:16px; height:calc(100vh - 155px);">
+        <div style="display:grid; grid-template-columns:540px 1fr; gap:16px; height:calc(100vh - 155px);">
             <!-- Left Runs Table -->
             <div class="panel" style="border:1px solid var(--border); border-radius:8px;">
                 <div class="panel-header">
@@ -40,6 +40,8 @@
                             <tr>
                                 <th>Run ID / File</th>
                                 <th>Status</th>
+                                <th>DB User</th>
+                                <th>Log SPID</th>
                                 <th>Duration</th>
                                 <th>Started (UTC)</th>
                             </tr>
@@ -48,7 +50,7 @@
                             @if (_runs.Count == 0)
                             {
                                 <tr>
-                                    <td colspan="4" style="text-align:center; padding:18px; color:var(--text-muted);">
+                                    <td colspan="6" style="text-align:center; padding:18px; color:var(--text-muted);">
                                         No pipeline runs found.
                                     </td>
                                 </tr>
@@ -65,6 +67,8 @@
                                             <code style="font-size:0.7rem; color:var(--text-muted);">@r.RunId</code>
                                         </td>
                                         <td><span class="badge @GetBadgeClass(r.Status)">@r.Status</span></td>
+                                        <td style="font-size:0.76rem;">@(string.IsNullOrWhiteSpace(r.EffectiveDbUser) ? "-" : r.EffectiveDbUser)</td>
+                                        <td><code style="font-size:0.75rem;">@r.EffectiveSpid</code></td>
                                         <td>@r.DurationMs ms</td>
                                         <td style="font-size:0.75rem;">@r.StartedAt.ToString("MM-dd HH:mm:ss")</td>
                                     </tr>
@@ -90,7 +94,9 @@
                                 <th>Component</th>
                                 <th>Node ID</th>
                                 <th>Status</th>
+                                <th>DB / SPID</th>
                                 <th>Rows (R/W/A)</th>
+                                <th>Output</th>
                                 <th>Time</th>
                             </tr>
                         </thead>
@@ -98,7 +104,7 @@
                             @if (_runEvents.Count == 0)
                             {
                                 <tr>
-                                    <td colspan="7" style="text-align:center; padding:20px; color:var(--text-muted);">
+                                    <td colspan="9" style="text-align:center; padding:20px; color:var(--text-muted);">
                                         Select a pipeline run on the left to inspect its node events.
                                     </td>
                                 </tr>
@@ -113,7 +119,22 @@
                                         <td><span class="palette-tag">&lt;@ev.NodeKind&gt;</span></td>
                                         <td><strong>@ev.NodeId</strong></td>
                                         <td><span class="badge @GetBadgeClass(ev.Status)">@ev.Status</span></td>
+                                        <td style="font-size:0.75rem;">
+                                            <span>@(string.IsNullOrWhiteSpace(ev.EffectiveDbUser) ? "-" : ev.EffectiveDbUser)</span>
+                                            <span style="color:var(--text-muted);"> / </span>
+                                            <code style="font-size:0.72rem;">@ev.EffectiveSpid</code>
+                                        </td>
                                         <td style="font-family:monospace; font-size:0.75rem;">@ev.RowsRead / @ev.RowsWritten / @ev.RowsAffected</td>
+                                        <td>
+                                            @if (ev.HasOutputText)
+                                            {
+                                                <span class="badge badge-success" title="@ev.NodeOutput">📋 output_text</span>
+                                            }
+                                            else
+                                            {
+                                                <span style="color:var(--text-muted); font-size:0.74rem;">—</span>
+                                            }
+                                        </td>
                                         <td style="font-size:0.74rem;">@ev.OccurredAt.ToString("HH:mm:ss.fff")</td>
                                     </tr>
                                 }

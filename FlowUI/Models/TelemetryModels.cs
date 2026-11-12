@@ -19,8 +19,44 @@ public abstract class TelemetryContextBase
     [JsonPropertyName("db_user_name")]
     public string DbUserName { get; set; } = string.Empty;
 
+    [JsonPropertyName("database_user_name")]
+    public string DatabaseUserName
+    {
+        get => DbUserName;
+        set
+        {
+            if (!string.IsNullOrEmpty(value))
+            {
+                DbUserName = value;
+            }
+        }
+    }
+
     [JsonPropertyName("spid")]
-    public int Spid { get; set; }
+    public string Spid { get; set; } = string.Empty;
+
+    [JsonPropertyName("sspid")]
+    public string Sspid
+    {
+        get => Spid;
+        set
+        {
+            if (!string.IsNullOrEmpty(value))
+            {
+                Spid = value;
+            }
+        }
+    }
+
+    [JsonIgnore]
+    public string EffectiveDbUser =>
+        !string.IsNullOrWhiteSpace(DbUserName)
+            ? DbUserName
+            : (!string.IsNullOrWhiteSpace(UserName) ? UserName : OsUserName);
+
+    [JsonIgnore]
+    public string EffectiveSpid =>
+        !string.IsNullOrWhiteSpace(Spid) && Spid != "0" ? Spid : "-";
 
     [JsonPropertyName("application_name")]
     public string ApplicationName { get; set; } = string.Empty;
@@ -81,6 +117,22 @@ public abstract class NodeRowMetricsBase : TelemetryContextBase
 
     [JsonPropertyName("node_output")]
     public string NodeOutput { get; set; } = string.Empty;
+
+    [JsonPropertyName("output_text")]
+    public string OutputText
+    {
+        get => NodeOutput;
+        set
+        {
+            if (!string.IsNullOrEmpty(value))
+            {
+                NodeOutput = value;
+            }
+        }
+    }
+
+    [JsonIgnore]
+    public bool HasOutputText => !string.IsNullOrWhiteSpace(NodeOutput);
 }
 
 public sealed class PipelineEventRecord : NodeRowMetricsBase
