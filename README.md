@@ -1,6 +1,19 @@
-# FlowUI (Flow Builder Studio)
+# FlowUI (Flow Builder Studio `v1.3.1`)
+
+> **Version:** `1.3.1` | **Target Runtime:** `.NET 10.0` (`net10.0`) | **Companion Backend:** `go-flowAPI v1.3.1`
 
 **FlowUI** is an interactive .NET 10 Blazor Server web application (**Flow Builder Studio**) for visually designing, configuring, signing, encrypting, validating, executing, and monitoring XML ETL pipelines powered by **`go-flow`** and **`go-flowAPI`**.
+
+## What's New in `v1.3.1`
+
+- **5-Sub-Tab Access Control Workspace in Settings**:
+  1. **API Users (`/api/v1/users`)**: Create/manage users and group assignments; new non-admin users default to `scoped` (zero implicit pipeline access until granted ACLs).
+  2. **User Groups (`/api/v1/groups`)**: Manage API user groups (`dbo.flow_api_groups`) and add/remove members (`dbo.flow_api_user_groups`).
+  3. **Pipeline Groups (`/api/v1/pipeline-groups`)**: Manage logical pipeline groups (`dbo.flow_pipeline_groups`) combining case-insensitive `name_pattern` globs (e.g., `fin_*`) and explicit pipeline assignments (`dbo.flow_pipeline_group_members`).
+  4. **Pipeline ACL Rules (`/api/v1/acls`)**: Author user- and group-level `allow` / `deny` rules for `create`, `read`, `update`, `delete`, `execute`, and `all` across individual pipelines, pipeline groups, or wildcard `*`.
+  5. **Effective Permissions Inspector (`/api/v1/permissions/effective`)**: Null-safe live permission matrix displaying resolved groups, `strict_acl` status, `creatable_groups`, `can_create_ungrouped`, `can_execute_inline_xml`, and per-pipeline `C · R · U · D · EXEC` badges — with admin user inspection (`?username=...`) and AD/external group "what-if" simulation (`?groups=...`).
+- **Default Strict Pipeline ACL Enforcement (`strict_acl: true`)**: Non-admin accounts have **no access to pipelines by default** unless granted via explicit `allow` rules in `dbo.flow_pipeline_acl`. `FlowApiClient.ApplyEffectivePermissions` dynamically hydrates UI `CanCreate`, `CanRead`, `CanUpdate`, `CanDelete`, and `CanExecute` controls from `/api/v1/permissions/effective`.
+- **Pipeline Group Assignment in Designer & Upload Modal**: Assign pipelines to one or more pipeline groups directly when saving from the Designer or uploading XML files in `LocalFileUploadModal`.
 
 ---
 
@@ -107,15 +120,17 @@ All backend communication is encapsulated in [`FlowApiClient.cs`](FlowUI/Service
   - **Authentication Headers Sent by `FlowUI`**:
     - **API Basic Mode (`ApiBasic`)**: Sends `Authorization: Basic <base64(username:password)>` from the user's interactive login.
     - **Windows Integrated Mode (`Windows`)**: Sends `Authorization: Basic`, `X-Flow-Windows-User: <DOMAIN\user>`, and `X-Flow-Windows-Groups: <base64(json-groups)>` so `go-flowAPI` can match the user or their AD groups against `dbo.flow_api_users`.
-  - **RBAC Permission Mapping (`FlowApiClient.MapApiPermissionToUser`)**:
-    - `read-only` → **Read (`R`)**
-    - `execution-only` → **Read + Execute (`R · EXEC`)**
-    - `upload` / `write` → **Create, Read, Update, Delete + Execute (`C · R · U · D · EXEC`)**
-    - `all` / `admin` → **Full Administrator (`ADMIN`, including `/api/v1/users` management)**
+  - **RBAC & Default-Strict Granular ACL Mapping (`FlowApiClient.MapApiPermissionToUser` + `ApplyEffectivePermissions`)**:
+    - **Default Strict Pipeline ACLs (`strict_acl: true` by default in `v1.3.1`)**: All non-admin (`non-"all"`) accounts have **zero access to pipelines by default** if that account (or its API/AD groups) has no `allow` rules set in `dbo.flow_pipeline_acl`. `ApplyEffectivePermissions` dynamically revokes or enables UI pipeline `CanCreate` / `CanRead` / `CanUpdate` / `CanDelete` / `CanExecute` capabilities based on `/api/v1/permissions/effective`.
+    - `scoped` *(default for new users in Settings)* → **Zero global baseline rights (`ACL-SCOPED`); strictly governed by Pipeline ACL Rules**
+    - `read-only` → **Non-pipeline `config`/`options` & telemetry Read (`R`), plus pipelines granted via ACLs** *(falls back to all pipelines only if server sets `-strict-acl=false`)*
+    - `execution-only` → **Non-pipeline Read/Crypto/Logs, plus pipeline Read + Execute (`R · EXEC`) when granted via ACLs** *(or globally if `-strict-acl=false`)*
+    - `upload` / `write` → **`config`/`options` CRUD, plus pipeline `C · R · U · D` when granted via ACLs** *(or globally if `-strict-acl=false`)*
+    - `all` / `admin` → **Full Administrator (`ADMIN`, unrestricted access including `/api/v1/users`, `/groups`, `/pipeline-groups`, and `/acls` management)**
 
 #### 2. Artifact Storage (`pipeline`, `config`, `options`)
 `FlowUI` manages three artifact types in `go-flowAPI`:
-1. **`pipeline`** (`<pipeline>` XML — full ETL workflow)
+1. **`pipeline`** (`<pipeline>` XML — full ETL workflow; supports `groups` membership and granular per-pipeline/group ACLs)
 2. **`config`** (`<pipeline>` XML restricted to setup/preflight/config-allowed components)
 3. **`options`** (`<flow_cli_options>` XML — reusable CLI flag sets such as `--var`, `--config`, `--timeout`)
 
@@ -124,8 +139,8 @@ All backend communication is encapsulated in [`FlowApiClient.cs`](FlowUI/Service
 | List artifacts by type | `GET /api/v1/artifacts/{type}?include_content=true` | `ListArtifactsAsync` |
 | Get artifact by ID | `GET /api/v1/artifacts/{type}/id/{id}?decrypt=true` | `GetArtifactByIdAsync` |
 | Get artifact by Name | `GET /api/v1/artifacts/{type}/{name}?decrypt=true` | `GetArtifactByNameAsync` |
-| Create / Upsert artifact | `POST /api/v1/artifacts/{type}?upsert=true` | `UpsertArtifactAsync` |
-| Update artifact by ID | `PUT /api/v1/artifacts/{type}/id/{id}` | `UpdateArtifactByIdAsync` |
+| Create / Upsert artifact (with optional pipeline `groups`) | `POST /api/v1/artifacts/{type}?upsert=true` | `UpsertArtifactAsync` |
+| Update artifact by ID (with optional pipeline `groups`) | `PUT /api/v1/artifacts/{type}/id/{id}` | `UpdateArtifactByIdAsync` |
 | Delete artifact by ID | `DELETE /api/v1/artifacts/{type}/id/{id}` | `DeleteArtifactByIdAsync` |
 | Delete artifact by Name | `DELETE /api/v1/artifacts/{type}/{name}` | `DeleteArtifactByNameAsync` |
 
@@ -150,7 +165,11 @@ Displayed in the **Logs** tab:
 - **`GET /api/v1/events?run_id={runId}&limit=500`** (`GetPipelineEventsAsync`): Fetches per-node execution telemetry for a specific run.
 - **`GET /api/v1/audit?limit=200`** (`GetApiAuditLogsAsync`): Fetches backend HTTP/API audit trail events.
 
-#### 6. Database Connection Testing & User Administration
-Displayed in the **Settings** tab:
+#### 6. Database Connection Testing, User Admin & Granular Pipeline ACLs
+Displayed in the **Settings** tab (**Database Connection Tester** and **Backend API Users, Groups & ACLs**):
 - **`POST /api/v1/db/test`** (`TestDatabaseViaApiAsync`): Sends a connection string/DSN (or empty string to test `go-flowAPI`'s default store) and returns connection status (`connected`), round-trip latency (`latency_ms`), SQL dialect, `db_user`, and session `spid`.
-- **`GET /api/v1/users`**, **`POST /api/v1/users`**, **`DELETE /api/v1/users/{username}`**: Manages `go-flowAPI` users, AD group mappings, and permission levels.
+- **API Users (`/api/v1/users`)**: `GetApiUsersAsync`, `UpsertApiUserAsync`, `DeleteApiUserAsync` — manages `go-flowAPI` users, AD principals, `scoped` / global roles, and `groups` assignments.
+- **API User Groups (`/api/v1/groups`)**: `GetApiGroupsAsync`, `UpsertApiGroupAsync`, `DeleteApiGroupAsync`, `AddApiGroupMembersAsync` (`POST /api/v1/groups/{name}/members`), and `RemoveApiGroupMemberAsync` (`DELETE /api/v1/groups/{name}/members/{username}`).
+- **Pipeline Groups (`/api/v1/pipeline-groups`)**: `GetPipelineGroupsAsync`, `UpsertPipelineGroupAsync` (with optional `name_pattern` globs such as `fin_*`), `DeletePipelineGroupAsync`, `AddPipelinesToGroupAsync` (`POST /api/v1/pipeline-groups/{name}/pipelines`), and `RemovePipelineFromGroupAsync` (`DELETE /api/v1/pipeline-groups/{name}/pipelines/{pipeline}`).
+- **Granular Pipeline ACL Rules (`/api/v1/acls`)**: `GetPipelineAclsAsync`, `UpsertPipelineAclAsync` (`POST /api/v1/acls`), `UpdatePipelineAclAsync` (`PUT /api/v1/acls/{id}`), and `DeletePipelineAclAsync` (`DELETE /api/v1/acls/{id}`) — manages `allow` / `deny` rules for `user` / `group` principals across `pipeline`, `pipeline_group`, or `*` targets (`create`, `read`, `update`, `delete`, `execute`, `all`).
+- **Effective Permissions Inspector (`/api/v1/permissions/effective`)**: `GetEffectivePermissionsAsync` — evaluates resolved per-pipeline CRUD & execution rights for the signed-in user or (for admins) any target `?username=...` and simulated `?groups=...`.

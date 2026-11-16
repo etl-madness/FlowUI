@@ -56,8 +56,16 @@ public sealed class CrudPermissions : PermissionFlagsBase
 /// </summary>
 public sealed class AppUser : PermissionFlagsBase
 {
+    private List<string> _groups = new();
+
     public string Username { get; set; } = string.Empty;
     public string PasswordHash { get; set; } = string.Empty;
+    public string ApiPermission { get; set; } = string.Empty;
+    public List<string> Groups
+    {
+        get => _groups;
+        set => _groups = value ?? new();
+    }
     public bool IsActive { get; set; } = true;
     public string Description { get; set; } = string.Empty;
     public string AuthProvider { get; set; } = "Database";

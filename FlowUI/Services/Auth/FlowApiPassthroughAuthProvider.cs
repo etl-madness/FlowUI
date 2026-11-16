@@ -58,6 +58,7 @@ public sealed class FlowApiPassthroughAuthProvider : IUiAuthProvider
             var body = await response.Content.ReadAsStringAsync(ct);
             string? apiPerm = null;
             string? authenticatedAs = null;
+            var healthGroups = new List<string>();
 
             try
             {
@@ -69,6 +70,16 @@ public sealed class FlowApiPassthroughAuthProvider : IUiAuthProvider
                 if (doc.RootElement.TryGetProperty("authenticated_as", out var authElem) && authElem.ValueKind == JsonValueKind.String)
                 {
                     authenticatedAs = authElem.GetString();
+                }
+                if (doc.RootElement.TryGetProperty("groups", out var grpElem) && grpElem.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var item in grpElem.EnumerateArray())
+                    {
+                        if (item.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(item.GetString()))
+                        {
+                            healthGroups.Add(item.GetString()!);
+                        }
+                    }
                 }
             }
             catch
@@ -88,7 +99,22 @@ public sealed class FlowApiPassthroughAuthProvider : IUiAuthProvider
                 authenticatedAs,
                 apiPerm,
                 ProviderName,
-                $"Authenticated via go-flowAPI Basic Auth (permission: {apiPerm})");
+                $"Authenticated via go-flowAPI Basic Auth (permission: {apiPerm})",
+                isActive: true,
+                groups: healthGroups);
+
+            if (!apiUser.IsAdmin)
+            {
+                try
+                {
+                    var eff = await _apiClient.GetEffectivePermissionsAsync(ct: ct);
+                    FlowApiClient.ApplyEffectivePermissions(apiUser, eff);
+                }
+                catch
+                {
+                    // Older go-flowAPI instances or mocked tests may not implement /api/v1/permissions/effective
+                }
+            }
 
             return AuthResult.Success(apiUser, ProviderName);
         }

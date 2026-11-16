@@ -354,24 +354,30 @@ public sealed class StudioStateService
 
         if (ApiOnline)
         {
-            try
-            {
-                var pTask = _api.ListArtifactsAsync("pipeline", includeContent: true);
-                var cTask = _api.ListArtifactsAsync("config", includeContent: true);
-                var oTask = _api.ListArtifactsAsync("options", includeContent: true);
-                await Task.WhenAll(pTask, cTask, oTask);
+            var pTask = SafeListArtifactsAsync("pipeline");
+            var cTask = SafeListArtifactsAsync("config");
+            var oTask = SafeListArtifactsAsync("options");
+            await Task.WhenAll(pTask, cTask, oTask);
 
-                Pipelines = NormalizeArtifactList(await pTask, "pipeline");
-                Configs = NormalizeArtifactList(await cTask, "config");
-                OptionsList = NormalizeArtifactList(await oTask, "options");
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Failed fetching artifacts from go-flowAPI.");
-            }
+            Pipelines = NormalizeArtifactList(await pTask, "pipeline");
+            Configs = NormalizeArtifactList(await cTask, "config");
+            OptionsList = NormalizeArtifactList(await oTask, "options");
         }
 
         NotifyStateChanged();
+    }
+
+    private async Task<List<ArtifactRecord>> SafeListArtifactsAsync(string artifactType)
+    {
+        try
+        {
+            return await _api.ListArtifactsAsync(artifactType, includeContent: true);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Listing {ArtifactType} artifacts returned an error (may be unauthorized for scoped user).", artifactType);
+            return new List<ArtifactRecord>();
+        }
     }
 
     private static List<ArtifactRecord> NormalizeArtifactList(List<ArtifactRecord> apiList, string artifactType)
@@ -1094,6 +1100,7 @@ public sealed class StudioStateService
                     imported.Signed = effectiveSigned;
                     imported.SignatureFormat = !string.IsNullOrWhiteSpace(sigFmt) ? sigFmt : full.SignatureFormat;
                     imported.SignedEnvelopeContent = signedEnv;
+                    imported.Groups = full.Groups is { Count: > 0 } ? new List<string>(full.Groups) : (cachedMatch?.Groups is { Count: > 0 } ? new List<string>(cachedMatch.Groups) : new List<string>());
                     if (!string.IsNullOrWhiteSpace(full.Name))
                         imported.Name = full.Name;
                     if (!string.IsNullOrWhiteSpace(full.Description))
@@ -1118,7 +1125,8 @@ public sealed class StudioStateService
                         SignatureFormat = !string.IsNullOrWhiteSpace(sigFmt) ? sigFmt : full.SignatureFormat,
                         SignedEnvelopeContent = signedEnv,
                         Name = full.Name,
-                        Description = full.Description
+                        Description = full.Description,
+                        Groups = full.Groups is { Count: > 0 } ? new List<string>(full.Groups) : new List<string>()
                     };
                     GeneratedXml = unwrappedXml;
                 }
@@ -1133,7 +1141,8 @@ public sealed class StudioStateService
                     Signed = wasOriginallySigned || full.Signed,
                     SignatureFormat = full.SignatureFormat,
                     Name = full.Name,
-                    Description = full.Description
+                    Description = full.Description,
+                    Groups = full.Groups is { Count: > 0 } ? new List<string>(full.Groups) : new List<string>()
                 };
                 RegenerateXmlFromDraft();
             }
@@ -1195,9 +1204,14 @@ public sealed class StudioStateService
                 CurrentDraft.Description,
                 contentToSave,
                 encrypted: CurrentDraft.Encrypted,
-                secureKey: keyToUse);
+                secureKey: keyToUse,
+                groups: normType == "pipeline" ? CurrentDraft.Groups : null);
 
             CurrentDraft.ApiArtifactId = saved.Id > 0 ? saved.Id : CurrentDraft.ApiArtifactId;
+            if (saved.Groups is { Count: > 0 })
+            {
+                CurrentDraft.Groups = new List<string>(saved.Groups);
+            }
             CurrentDraft.IsDirty = false;
             CurrentDraft.UpdatedAt = DateTime.UtcNow;
 
@@ -1240,7 +1254,8 @@ public sealed class StudioStateService
         string xmlContent,
         bool encrypted = false,
         bool loadIntoDesigner = true,
-        string? secureKey = null)
+        string? secureKey = null,
+        IEnumerable<string>? groups = null)
     {
         var normType = (artifactType ?? "pipeline").Trim().ToLowerInvariant();
         if (!_auth.CurrentPermissions.CanCreate && !_auth.CurrentPermissions.CanUpdate)
@@ -1275,7 +1290,8 @@ public sealed class StudioStateService
                 description?.Trim() ?? string.Empty,
                 xmlContent,
                 encrypted: encrypted,
-                secureKey: keyToUse);
+                secureKey: keyToUse,
+                groups: normType == "pipeline" ? groups : null);
 
             await RefreshHealthAndArtifactsAsync();
 

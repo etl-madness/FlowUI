@@ -1,6 +1,8 @@
-# FlowUI Compilation & `go-flowAPI` Architecture Guide
+# FlowUI Compilation & `go-flowAPI` Architecture Guide (`v1.3.1`)
 
-**FlowUI** is an interactive Blazor Server visual studio and management console for authoring, validating, encrypting, executing, and auditing ETL pipelines powered by the **`go-flowAPI`** backend engine.
+> **Version:** `FlowUI v1.3.1` & `go-flowAPI v1.3.1` | **Runtime:** `.NET 10.0` (`net10.0`)
+
+**FlowUI** is an interactive Blazor Server visual studio and management console for authoring, validating, signing, encrypting, executing, governing (via granular pipeline ACLs), and auditing ETL pipelines powered by the **`go-flowAPI`** backend engine.
 
 ---
 
@@ -60,17 +62,17 @@ dotnet publish FlowUI/FlowUI.csproj -c Release -r win-x64 --self-contained true 
 | `FLOW_API_PORT` | `8080` | TCP port of `go-flowAPI` when `FLOW_API_URL` is not explicitly set. |
 | `FLOW_UI_PORT` | `8081` | UI port that the FlowUI Kestrel server binds to. Combined with `FLOW_UI_SCHEME`. |
 | `FLOW_UI_SCHEME` | `https` | URL scheme for the FlowUI Kestrel binding. Set `FLOW_UI_SCHEME=http` to override the secure default in non-TLS local/dev environments. |
-| `FLOW_UI_AUTH_MODE` | `basic` | Authentication mode (`none` / `off` / `false` / `disabled` to bypass login, or `basic` to require sign-in). |
-| `FLOW_API_BASIC_AUTH` | *(empty)* | Optional `username:password` credential pair used for HTTP Basic Auth against `go-flowAPI` prior to interactive user sign-in. |
-| `FLOW_UI_ADMIN_USER` | `admin` | Default bootstrap administrator username. |
-| `FLOW_UI_ADMIN_PASSWORD` | `admin` | Default bootstrap administrator password. |
+| `FLOW_UI_AUTH_MODE` | `ApiBasic` | Active UI authentication mode (`ApiBasic` for interactive login against `go-flowAPI`, or `Windows` for Windows Integrated / AD identity). |
+| `FLOW_API_BASIC_AUTH` | *(empty)* | Optional Base64 `username:password` service token used when `FLOW_UI_AUTH_MODE=Windows`. |
+| `FLOW_UI_ADMIN_USER` | `admin` | Default bootstrap administrator username hint. |
+| `FLOW_UI_ADMIN_PASSWORD` | `admin` | Default bootstrap administrator password hint. |
 
 ---
 
 ## 3. How FlowUI Relates to `go-flowAPI`
 
 ### Architectural Separation of Concerns
-`FlowUI` is a **stateless presentation and authoring layer** built on ASP.NET Core Blazor Server (`InteractiveServer`). It does **not** execute ETL pipelines, manage database connection pools, or store persistent artifacts on its own local filesystem. Instead, `FlowUI` delegates all execution, persistence, cryptography, and telemetry operations to **`go-flowAPI`** over REST and Server-Sent Events (SSE).
+`FlowUI` is a **stateless presentation and authoring layer** built on ASP.NET Core Blazor Server (`InteractiveServer`). It does **not** execute ETL pipelines, manage database connection pools, or store persistent artifacts on its own local filesystem. Instead, `FlowUI` delegates all execution, persistence, access control, cryptography, and telemetry operations to **`go-flowAPI`** over REST and Server-Sent Events (SSE).
 
 ```mermaid
 flowchart LR
@@ -80,16 +82,16 @@ flowchart LR
     end
 
     subgraph FlowUI["FlowUI (.NET 10 Blazor Server :8081)"]
-        State["StudioStateService\n(Visual Tree <-> XML/YAML/JSON)"]
+        State["StudioStateService\n(Visual AST <-> XML)"]
         Docs["DocsService & CatalogService\n(Component Schema & Guides)"]
         Client["FlowApiClient\n(Scoped HTTP + SSE Client)"]
     end
 
     subgraph GoFlowAPI["go-flowAPI (Go Backend :8080)"]
-        Auth["RBAC & User Store\n(/api/v1/users)"]
-        Artifacts["Artifact Storage\n(/api/v1/artifacts/*)"]
-        Engine["go-flow Execution Engine\n(/api/v1/validate, /execute, /stream)"]
-        Crypto["PKI & Envelope Encryption\n(/api/v1/crypto/*)"]
+        Auth["RBAC, Groups & Granular ACLs\n(/api/v1/users, /groups, /pipeline-groups,\n/acls, /permissions/effective)"]
+        Artifacts["Artifact Storage\n(/api/v1/artifacts/*, /upload/*)"]
+        Engine["go-flow Execution Engine\n(/api/v1/validate, /execute, /execute/stream)"]
+        Crypto["PKI, Signing & AES-256-GCM\n(/api/v1/crypto/*)"]
         DBTest["Database Driver Probe\n(/api/v1/db/test)"]
         Telemetry["Run History, Events & Audit\n(/api/v1/runs, /events, /audit)"]
     end
@@ -97,47 +99,37 @@ flowchart LR
     UI <-->|"SignalR Circuit"| State
     HB <-->|"Markdig HTML"| Docs
     State <-->|"REST + SSE"| Client
-    Client <-->|"HTTP / JSON / SSE\n(Basic Auth)"| GoFlowAPI
+    Client <-->|"HTTP / JSON / SSE\n(Basic Auth + Windows Headers)"| GoFlowAPI
 ```
 
 ### Subsystem Integration Details
 
-#### 1. Authentication & Role-Based Access Control (RBAC)
-- When a user logs into `FlowUI`, `StudioStateService` calls `FlowApiClient.AuthenticateUserAsync`, which attaches HTTP Basic Auth credentials (`Authorization: Basic ...`) to `GET /api/v1/users` on `go-flowAPI`.
-- Based on the user record returned by `go-flowAPI` (or `403 Forbidden` for non-admin accounts that still pass authentication), `FlowUI` enforces RBAC permissions in the UI (`admin`, `operator`, `viewer`) and scopes subsequent `FlowApiClient` requests to that user's credentials.
+#### 1. Authentication, Global RBAC & Default-Strict Granular Pipeline ACLs (`v1.3.1`)
+- When a user signs into `FlowUI` (`FlowApiPassthroughAuthProvider` or `WindowsIntegratedUiAuthProvider`), `FlowUI` verifies identity against `GET /api/v1/health` (sending `Authorization: Basic` and optional `X-Flow-Windows-User` + `X-Flow-Windows-Groups` headers) and maps the returned global role (`all`, `write`, `upload`, `execution-only`, `read-only`, or `scoped`).
+- By default in `go-flowAPI v1.3.1` (`-strict-acl=true`), **all non-admin (`non-"all"`) accounts have zero access to pipelines if that account (or its API/AD groups) does not have explicit `allow` rules set in `dbo.flow_pipeline_acl`**.
+- `FlowUI` queries `GET /api/v1/permissions/effective` and applies `FlowApiClient.ApplyEffectivePermissions` so non-admin users automatically receive their resolved group memberships and exact effective UI `CanCreate`, `CanRead`, `CanUpdate`, `CanDelete`, and `CanExecute` capabilities (revoking pipeline access when `strict_acl: true` and no ACLs grant access, unless the server explicitly opts out via `-strict-acl=false`).
+- In **Settings → Backend API Users, Groups & ACLs**, administrators have 5 dedicated sub-tabs to manage **API Users** (`/api/v1/users`, defaulting new accounts to `scoped`), **User Groups** (`/api/v1/groups`), **Pipeline Groups** (`/api/v1/pipeline-groups` with explicit memberships and `name_pattern` globs such as `fin_*`), **Pipeline ACL Rules** (`/api/v1/acls` with `allow`/`deny` precedence), and the **Effective Permissions Inspector** (`/api/v1/permissions/effective` with `?username=` & `?groups=` simulation).
 
-#### 2. Two-Way Pipeline Serialization (`StudioStateService` + `PipelineSerializer`)
-- `FlowUI` maintains an in-memory object graph (`PipelineModel`) representing `<preflight>`, `<variables>`, `<databases>`, and `<flow>` steps.
-- `PipelineSerializer` converts this visual model back and forth into the canonical XML, YAML, or JSON pipeline specification understood by `go-flow` and `go-flowAPI`.
-- Users can edit nodes visually in the **Visual Canvas** or edit raw source in the **Code Editor**, and `FlowUI` keeps both representations synchronized before submitting the payload to `go-flowAPI`.
+#### 2. Two-Way XML Pipeline Serialization (`XmlGeneratorService` & `XmlImporterService`)
+- `FlowUI` maintains an in-memory AST (`PipelineDraft`) representing `<variables>`, `<databases>`, `<preflight>`, and `<flow>` steps.
+- `XmlGeneratorService` and `XmlImporterService` convert this visual model back and forth into canonical `go-flow` XML (`pipeline`, `config`, and `options`), preserving cryptographic metadata and pipeline `Groups` memberships across load/save cycles.
 
 #### 3. Server-Side Validation & Live SSE Execution
-- **Validation (`POST /api/v1/validate`)**: Sends the serialized pipeline (`format` + `content`) to `go-flowAPI` to verify structural rules, component attributes, and DAG references.
-- **Synchronous Execution (`POST /api/v1/execute`)**: Runs a pipeline to completion (or in `dry_run` mode) and returns structured step results, console logs, and final variable states.
-- **Streaming Execution (`POST /api/v1/execute/stream`)**: Opens an HTTP `text/event-stream` (SSE) connection to `go-flowAPI`. As `go-flowAPI` executes each step, it emits `start`, `step`, `complete`, and `error` events that `FlowUI` renders live in the canvas and execution drawer.
+- **Validation (`POST /api/v1/validate`)**: Verifies XML structure, XSD rules, and component attributes without executing `<flow>` steps.
+- **Synchronous Execution (`POST /api/v1/execute`)**: Runs a pipeline synchronously and returns structured step results, `formatted_output`, and `run_id`.
+- **Streaming Execution (`POST /api/v1/execute/stream`)**: Opens an HTTP `text/event-stream` (SSE) stream and renders real-time `node_event` and `done` frames live in the Runner UI.
 
-#### 4. Artifact Storage & Lifecycle Management
-- `FlowUI` stores and retrieves all reusable assets through `go-flowAPI`'s unified artifact store (`/api/v1/artifacts/{type}`):
-  - `pipelines`: Saved ETL pipeline definitions
-  - `schemas`: Reusable validation schemas
-  - `templates`: Shared `<template>` / `<template_html>` bodies
-  - `scripts`: Shared JavaScript/TypeScript `<script>` modules
-  - `keys`: Public/private key material metadata
+#### 4. Artifact Storage & Pipeline Group Assignment
+- `FlowUI` manages `pipeline`, `config`, and `options` artifacts through `/api/v1/artifacts/{type}` (fetching each type independently so `403 Forbidden` on `config`/`options` for a `scoped` user never blocks authorized `pipeline` records from loading).
+- Uploading or saving a `pipeline` supports optional `"groups"` assignment into `dbo.flow_pipeline_group_members`.
 
-#### 5. Cryptography & Envelope Encryption
-- To protect sensitive pipeline intellectual property or embedded credentials, `FlowUI` integrates with `go-flowAPI`'s cryptographic endpoints:
-  - `POST /api/v1/crypto/keygen`: Generates RSA/ECDSA/Ed25519 key pairs.
-  - `POST /api/v1/crypto/csr`: Generates Certificate Signing Requests.
-  - `POST /api/v1/crypto/encrypt` & `POST /api/v1/crypto/decrypt`: Performs hybrid envelope encryption/decryption (`AES-256-GCM` payload encryption wrapped with RSA-OAEP).
-  - Encrypted pipelines can be executed directly via `/api/v1/execute` by passing `encrypted: true` and the decryption key Reference/PEM.
+#### 5. Cryptography, `FLOWENC:v1:` Encryption & Digital Signatures
+- Setting a session key in **Settings → Crypto** attaches `X-Flow-Secure-Key` for `FLOWENC:v1:` AES-256-GCM encryption/decryption.
+- `/api/v1/crypto/keygen`, `/api/v1/crypto/sign`, `/api/v1/crypto/verify`, `/api/v1/crypto/encrypt`, and `/api/v1/crypto/decrypt` provide server-delegated OpenSSL PEM, PKCS#7 X.509 CMS, GPG/OpenPGP, and AES-256-GCM envelope operations (with local fallback via `FlowCryptoService`).
 
-#### 6. Database Connection Testing (`POST /api/v1/db/test`)
-- When configuring `<database>` definitions in the **Canvas** or **Settings -> Database Connection Tester**, clicking **Test Connection** sends the driver (`postgres`, `mysql`, `sqlserver`, `oracle`, `sqlite`, `redis`, etc.) and DSN to `go-flowAPI` (`POST /api/v1/db/test`).
-- `go-flowAPI` opens a live connection using its native Go database drivers, measures round-trip ping latency, and returns success or driver diagnostics to `FlowUI`, which updates the `✔ Tested` / `❌ Failed` status badge on the database node.
-
-#### 7. Observability, Telemetry & Audit Logs
-- **Dashboard & Telemetry**: `FlowUI` polls `/api/v1/health`, `/api/v1/runs`, and `/api/v1/events` on `go-flowAPI` to display historical run durations, step-level traces, and error rates.
-- **Audit Log**: `FlowUI` queries `/api/v1/audit` to display an immutable trail of user logins, pipeline executions, artifact modifications, and administrative actions recorded by `go-flowAPI`.
+#### 6. Database Connection Testing & Observability
+- **Database Tester (`POST /api/v1/db/test`)**: Pings the startup store or custom DSN and displays `connected`, latency, SQL `dialect`, `db_user`, and `spid`.
+- **Logs & Audit (`/api/v1/runs`, `/api/v1/events`, `/api/v1/audit`)**: Displays run summaries, step-level `node_output` and session SPIDs, and API security/audit events.
 
 ---
 
@@ -145,23 +137,41 @@ flowchart LR
 
 | Category | `FlowApiClient` Method | `go-flowAPI` Endpoint | Purpose |
 | :--- | :--- | :--- | :--- |
-| **Health** | `GetHealthAsync` | `GET /api/v1/health` | Service health check, version, and uptime |
-| **Artifacts** | `ListArtifactsAsync` | `GET /api/v1/artifacts/{type}` | List stored `pipelines`, `schemas`, `templates`, `scripts`, or `keys` |
-| **Artifacts** | `GetArtifactAsync` | `GET /api/v1/artifacts/{type}/{name}` | Load a specific artifact payload and metadata |
-| **Artifacts** | `SaveArtifactAsync` | `PUT /api/v1/artifacts/{type}/{name}` | Create or update an artifact |
-| **Artifacts** | `DeleteArtifactAsync` | `DELETE /api/v1/artifacts/{type}/{name}` | Delete an artifact |
-| **Execution** | `ValidateAsync` | `POST /api/v1/validate` | Validate pipeline syntax, schema, and step configuration |
-| **Execution** | `ExecuteAsync` | `POST /api/v1/execute` | Execute a pipeline (supports `dry_run`, runtime `variables`, and `encrypted` payloads) |
-| **Execution** | `ExecuteStreamAsync` | `POST /api/v1/execute/stream` | Execute a pipeline with real-time Server-Sent Events (`text/event-stream`) |
-| **Crypto / PKI** | `GenerateKeyPairAsync` | `POST /api/v1/crypto/keygen` | Generate cryptographic key pairs |
-| **Crypto / PKI** | `GenerateCsrAsync` | `POST /api/v1/crypto/csr` | Generate a Certificate Signing Request (CSR) |
-| **Crypto / PKI** | `EncryptPipelineAsync` | `POST /api/v1/crypto/encrypt` | Encrypt a pipeline using hybrid envelope encryption |
-| **Crypto / PKI** | `DecryptPipelineAsync` | `POST /api/v1/crypto/decrypt` | Decrypt an encrypted pipeline envelope |
-| **Telemetry** | `ListRunsAsync` | `GET /api/v1/runs` | List historical pipeline execution runs |
-| **Telemetry** | `GetRunAsync` | `GET /api/v1/runs/{id}` | Get detailed step results and logs for a specific run |
-| **Telemetry** | `ListEventsAsync` | `GET /api/v1/events` | Query telemetry events (optionally filtered by `run_id`) |
-| **Audit** | `ListAuditLogsAsync` | `GET /api/v1/audit` | Retrieve security and operational audit logs |
-| **Database** | `TestDbConnectionAsync` | `POST /api/v1/db/test` | Test live connectivity and measure latency for a database driver + DSN |
-| **Users / RBAC** | `ListUsersAsync` | `GET /api/v1/users` | List registered users and roles |
-| **Users / RBAC** | `SaveUserAsync` | `PUT /api/v1/users/{username}` | Create or update a user account, password, and role |
-| **Users / RBAC** | `DeleteUserAsync` | `DELETE /api/v1/users/{username}` | Delete a user account |
+| **Health & Identity** | `GetAuthenticatedIdentityAsync` / `CheckHealthAsync` | `GET /api/v1/health` | Service health, DB session identity, caller `permission` & `groups` |
+| **Artifacts** | `ListArtifactsAsync` | `GET /api/v1/artifacts/{type}?include_content=true` | List readable `pipeline`, `config`, or `options` artifacts (includes pipeline `groups`) |
+| **Artifacts** | `GetArtifactByIdAsync` | `GET /api/v1/artifacts/{type}/id/{id}?decrypt=true` | Fetch artifact by database `ID` (with `?decrypt=false` raw fallback) |
+| **Artifacts** | `GetArtifactByNameAsync` | `GET /api/v1/artifacts/{type}/{name}?decrypt=true` | Fetch artifact by unique `name` (with `?decrypt=false` raw fallback) |
+| **Artifacts** | `UpsertArtifactAsync` | `POST /api/v1/artifacts/{type}?upsert=true` | Create or overwrite an artifact (supports optional pipeline `groups`) |
+| **Artifacts** | `UpdateArtifactByIdAsync` | `PUT /api/v1/artifacts/{type}/id/{id}` | Update an existing artifact by `ID` (supports optional pipeline `groups`) |
+| **Artifacts** | `DeleteArtifactByIdAsync` | `DELETE /api/v1/artifacts/{type}/id/{id}` | Delete an artifact by database `ID` |
+| **Artifacts** | `DeleteArtifactByNameAsync` | `DELETE /api/v1/artifacts/{type}/{name}` | Delete an artifact by unique `name` |
+| **Execution** | `ValidatePipelineAsync` / `ValidatePipelineXmlAsync` | `POST /api/v1/validate` | Validate pipeline XML syntax, XSD schema, and AST semantics |
+| **Execution** | `ExecutePipelineSyncAsync` | `POST /api/v1/execute` | Execute a pipeline synchronously (`file`, `file_xml`, `config`, `options`, `vars`, `node_output`) |
+| **Execution** | `ExecutePipelineStreamAsync` | `POST /api/v1/execute/stream` | Execute a pipeline with live Server-Sent Events (`text/event-stream`) |
+| **Crypto / PKI** | `CryptoKeygenAsync` | `POST /api/v1/crypto/keygen` | Generate Ed25519, ECDSA, RSA, X.509 PKCS#7, GPG, or AES-256 keys |
+| **Crypto / PKI** | `CryptoSignAsync` | `POST /api/v1/crypto/sign` | Digitally sign XML payloads (`OPENSSL`, `PKCS7`, `PGP`) |
+| **Crypto / PKI** | `CryptoVerifyAsync` | `POST /api/v1/crypto/verify` | Verify wrapped (`FLOWSIGNED:v1:`) or detached signatures |
+| **Crypto / PKI** | `CryptoEncryptViaApiAsync` | `POST /api/v1/crypto/encrypt` | Encrypt payload into a `FLOWENC:v1:` AES-256-GCM envelope |
+| **Crypto / PKI** | `CryptoDecryptViaApiAsync` | `POST /api/v1/crypto/decrypt` | Decrypt a `FLOWENC:v1:` AES-256-GCM envelope |
+| **Telemetry** | `GetPipelineRunsAsync` | `GET /api/v1/runs` | Query historical pipeline execution summaries (`dbo.pipeline_runs`) |
+| **Telemetry** | `GetPipelineEventsAsync` | `GET /api/v1/events` | Query step-level execution telemetry & `node_output` (`dbo.pipeline_events`) |
+| **Audit** | `GetApiAuditLogsAsync` | `GET /api/v1/audit` | Query API security & operational audit events (`dbo.flow_api_events`) |
+| **Database** | `TestDatabaseViaApiAsync` | `POST /api/v1/db/test` | Test live connectivity and measure latency for default store or custom DSN |
+| **API Users** | `GetApiUsersAsync` | `GET /api/v1/users` | List registered API users, global roles, and `groups` |
+| **API Users** | `UpsertApiUserAsync` | `POST /api/v1/users` | Create or update an API user (`all`, `scoped`, `write`, `upload`, `execution-only`, `read-only`) and `groups` |
+| **API Users** | `DeleteApiUserAsync` | `DELETE /api/v1/users/{username}` | Delete an API user account |
+| **User Groups** | `GetApiGroupsAsync` | `GET /api/v1/groups` | List API user groups and their members (`dbo.flow_api_groups`) |
+| **User Groups** | `UpsertApiGroupAsync` | `POST /api/v1/groups` | Create or update an API user group and member list |
+| **User Groups** | `DeleteApiGroupAsync` | `DELETE /api/v1/groups/{name}` | Delete an API user group |
+| **User Groups** | `AddApiGroupMembersAsync` | `POST /api/v1/groups/{name}/members` | Add user(s) to an API user group (`dbo.flow_api_user_groups`) |
+| **User Groups** | `RemoveApiGroupMemberAsync` | `DELETE /api/v1/groups/{name}/members/{username}` | Remove a user from an API user group |
+| **Pipeline Groups** | `GetPipelineGroupsAsync` | `GET /api/v1/pipeline-groups` | List pipeline groups, `name_pattern` globs, and matched pipelines |
+| **Pipeline Groups** | `UpsertPipelineGroupAsync` | `POST /api/v1/pipeline-groups` | Create or update a pipeline group (`name_pattern` + explicit `pipelines`) |
+| **Pipeline Groups** | `DeletePipelineGroupAsync` | `DELETE /api/v1/pipeline-groups/{name}` | Delete a pipeline group |
+| **Pipeline Groups** | `AddPipelinesToGroupAsync` | `POST /api/v1/pipeline-groups/{name}/pipelines` | Assign pipeline(s) to a pipeline group (`dbo.flow_pipeline_group_members`) |
+| **Pipeline Groups** | `RemovePipelineFromGroupAsync` | `DELETE /api/v1/pipeline-groups/{name}/pipelines/{pipeline}` | Remove an explicit pipeline membership from a group |
+| **Pipeline ACLs** | `GetPipelineAclsAsync` | `GET /api/v1/acls` | List granular `allow`/`deny` pipeline ACL rules (optional principal/target filters) |
+| **Pipeline ACLs** | `UpsertPipelineAclAsync` | `POST /api/v1/acls` | Create or upsert a granular pipeline ACL rule (`dbo.flow_pipeline_acl`) |
+| **Pipeline ACLs** | `UpdatePipelineAclAsync` | `PUT /api/v1/acls/{id}` | Update an existing pipeline ACL rule by primary key `ID` |
+| **Pipeline ACLs** | `DeletePipelineAclAsync` | `DELETE /api/v1/acls/{id}` | Delete a pipeline ACL rule by `ID` |
+| **Effective Perms** | `GetEffectivePermissionsAsync` | `GET /api/v1/permissions/effective` | Inspect effective per-pipeline CRUD & Execute rights (supports `?username=&groups=` simulation for admins) |

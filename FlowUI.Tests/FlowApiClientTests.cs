@@ -705,4 +705,284 @@ public class FlowApiClientTests
         Assert.Equal("", perm);
         Assert.Equal("ok (sqlserver)", summary);
     }
+
+    [Fact]
+    public void ScopedPermission_And_ApplyEffectivePermissions_HydratesCapabilitiesAndGroups()
+    {
+        var scopedUser = FlowApiClient.MapApiPermissionToUser(
+            "analyst_1",
+            "scoped",
+            "ApiBasic",
+            "Scoped analyst",
+            isActive: true,
+            groups: [" finance_analysts ", "FINANCE_ANALYSTS", "ops_viewers"]);
+
+        Assert.Equal("scoped", scopedUser.ApiPermission);
+        Assert.False(scopedUser.IsAdmin);
+        Assert.False(scopedUser.CanCreate);
+        Assert.True(scopedUser.CanRead);
+        Assert.False(scopedUser.CanUpdate);
+        Assert.False(scopedUser.CanDelete);
+        Assert.False(scopedUser.CanExecute);
+        Assert.Equal(2, scopedUser.Groups.Count);
+
+        var comboUser = FlowApiClient.MapApiPermissionToUser("combo", "read-only, execution-only", "ApiBasic");
+        Assert.True(comboUser.CanRead);
+        Assert.True(comboUser.CanExecute);
+        Assert.False(comboUser.CanUpdate);
+
+        var eff = new EffectivePermissionsResponseDto
+        {
+            Username = "analyst_1",
+            GlobalPermission = "scoped",
+            StrictAcl = true,
+            Groups = ["finance_analysts", "etl_runners"],
+            CanCreateUngrouped = false,
+            CreatableGroups = ["finance_etl"],
+            CanExecuteInlineXml = false,
+            Pipelines =
+            [
+                new EffectivePipelinePermissionsDto
+                {
+                    Pipeline = "fin_daily",
+                    Groups = ["finance_etl"],
+                    Actions = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase)
+                    {
+                        ["create"] = false,
+                        ["read"] = true,
+                        ["update"] = false,
+                        ["delete"] = false,
+                        ["execute"] = true
+                    }
+                }
+            ]
+        };
+
+        FlowApiClient.ApplyEffectivePermissions(scopedUser, eff);
+        Assert.True(scopedUser.CanCreate);
+        Assert.True(scopedUser.CanRead);
+        Assert.False(scopedUser.CanUpdate);
+        Assert.False(scopedUser.CanDelete);
+        Assert.True(scopedUser.CanExecute);
+        Assert.Contains("etl_runners", scopedUser.Groups);
+
+        // Strict ACL user with zero grants loses baseline read
+        var emptyScoped = FlowApiClient.MapApiPermissionToUser("locked_out", "scoped", "ApiBasic");
+        FlowApiClient.ApplyEffectivePermissions(emptyScoped, new EffectivePermissionsResponseDto
+        {
+            Username = "locked_out",
+            GlobalPermission = "scoped",
+            StrictAcl = true
+        });
+        Assert.False(emptyScoped.CanRead);
+        Assert.False(emptyScoped.CanCreate);
+        Assert.False(emptyScoped.CanExecute);
+    }
+
+    [Fact]
+    public async Task AccessControlEndpoints_UserGroups_PipelineGroups_Acls_And_EffectivePermissions_CoverAllBranches()
+    {
+        bool failMode = false;
+        var handler = new FakeHttpMessageHandler(req =>
+        {
+            if (failMode)
+            {
+                return FakeHttpMessageHandler.JsonResponse("""{"error":"ACL backend failure"}""", HttpStatusCode.Forbidden);
+            }
+
+            var path = req.RequestUri!.AbsolutePath;
+            return path switch
+            {
+                "/api/v1/artifacts/pipeline" when req.Method == HttpMethod.Post =>
+                    FakeHttpMessageHandler.JsonResponse("""{"id":21,"name":"fin_p1","type":"pipeline","groups":["finance_etl"]}"""),
+                "/api/v1/artifacts/pipeline/id/21" when req.Method == HttpMethod.Put =>
+                    FakeHttpMessageHandler.JsonResponse("""{"id":21,"name":"fin_p1","type":"pipeline","groups":["finance_etl","audit_etl"]}"""),
+                "/api/v1/users" when req.Method == HttpMethod.Post =>
+                    FakeHttpMessageHandler.JsonResponse("""{"username":"alice","permission":"scoped","is_active":true,"groups":["finance_analysts"]}"""),
+                "/api/v1/groups" when req.Method == HttpMethod.Get =>
+                    FakeHttpMessageHandler.JsonResponse("""{"groups":[{"id":1,"name":"finance_analysts","description":"Finance","members":["alice"]}]}"""),
+                "/api/v1/groups" when req.Method == HttpMethod.Post =>
+                    FakeHttpMessageHandler.JsonResponse("""{"id":1,"name":"finance_analysts","description":"Finance","members":["alice","bob"]}"""),
+                "/api/v1/groups/finance_analysts/members" when req.Method == HttpMethod.Post =>
+                    FakeHttpMessageHandler.JsonResponse("""{"id":1,"name":"finance_analysts","members":["alice","bob","carol"]}"""),
+                "/api/v1/groups/finance_analysts/members/carol" when req.Method == HttpMethod.Delete =>
+                    FakeHttpMessageHandler.JsonResponse("""{"deleted":true}"""),
+                "/api/v1/groups/finance_analysts" when req.Method == HttpMethod.Delete =>
+                    FakeHttpMessageHandler.JsonResponse("""{"deleted":true}"""),
+                "/api/v1/pipeline-groups" when req.Method == HttpMethod.Get =>
+                    FakeHttpMessageHandler.JsonResponse("""{"pipeline_groups":[{"id":2,"name":"finance_etl","name_pattern":"fin_*","pipelines":["fin_p1"]}]}"""),
+                "/api/v1/pipeline-groups" when req.Method == HttpMethod.Post =>
+                    FakeHttpMessageHandler.JsonResponse("""{"id":2,"name":"finance_etl","name_pattern":"fin_*","pipelines":["fin_p1","fin_p2"]}"""),
+                "/api/v1/pipeline-groups/finance_etl/pipelines" when req.Method == HttpMethod.Post =>
+                    FakeHttpMessageHandler.JsonResponse("""{"id":2,"name":"finance_etl","pipelines":["fin_p1","fin_p2","fin_p3"]}"""),
+                "/api/v1/pipeline-groups/finance_etl/pipelines/fin_p3" when req.Method == HttpMethod.Delete =>
+                    FakeHttpMessageHandler.JsonResponse("""{"deleted":true}"""),
+                "/api/v1/pipeline-groups/finance_etl" when req.Method == HttpMethod.Delete =>
+                    FakeHttpMessageHandler.JsonResponse("""{"deleted":true}"""),
+                "/api/v1/acls" when req.Method == HttpMethod.Get =>
+                    FakeHttpMessageHandler.JsonResponse("""{"acls":[{"id":5,"principal_type":"group","principal_name":"finance_analysts","target_type":"pipeline_group","target_name":"finance_etl","permissions":"read,execute","effect":"allow"}]}"""),
+                "/api/v1/acls" when req.Method == HttpMethod.Post =>
+                    FakeHttpMessageHandler.JsonResponse("""{"id":6,"principal_type":"user","principal_name":"alice","target_type":"*","target_name":"*","permissions":"read","effect":"deny"}"""),
+                "/api/v1/acls/6" when req.Method == HttpMethod.Put =>
+                    FakeHttpMessageHandler.JsonResponse("""{"id":6,"principal_type":"user","principal_name":"alice","target_type":"pipeline","target_name":"fin_p1","permissions":"delete","effect":"deny"}"""),
+                "/api/v1/acls/6" when req.Method == HttpMethod.Delete =>
+                    FakeHttpMessageHandler.JsonResponse("""{"deleted":true}"""),
+                "/api/v1/permissions/effective" =>
+                    FakeHttpMessageHandler.JsonResponse("""{"username":"alice","global_permission":"scoped","strict_acl":true,"groups":["finance_analysts"],"can_create_ungrouped":false,"creatable_groups":["finance_etl"],"can_execute_inline_xml":false,"pipelines":[{"pipeline":"fin_p1","groups":["finance_etl"],"actions":{"create":false,"read":true,"update":false,"delete":false,"execute":true}}]}"""),
+                _ => FakeHttpMessageHandler.JsonResponse("{}")
+            };
+        });
+
+        var client = CreateClient(handler, out _);
+
+        var art = await client.UpsertArtifactAsync("pipeline", "fin_p1", "desc", "<pipeline />", groups: ["finance_etl"]);
+        Assert.Contains("finance_etl", art.Groups);
+
+        var updatedArt = await client.UpdateArtifactByIdAsync("pipeline", 21, "desc2", "<pipeline />", groups: ["finance_etl", "audit_etl"]);
+        Assert.Equal(2, updatedArt.Groups.Count);
+
+        var savedUser = await client.UpsertApiUserAsync("alice", "pw", "scoped", "Scoped analyst", isActive: true, groups: ["finance_analysts"]);
+        Assert.NotNull(savedUser);
+        Assert.Equal("scoped", savedUser.Permission);
+        Assert.Contains("finance_analysts", savedUser.Groups);
+
+        var groups = await client.GetApiGroupsAsync();
+        Assert.Single(groups);
+
+        var upsertedGrp = await client.UpsertApiGroupAsync("finance_analysts", "Finance", ["alice", "bob"]);
+        Assert.NotNull(upsertedGrp);
+        Assert.Equal(2, upsertedGrp.Members.Count);
+
+        var addedMembers = await client.AddApiGroupMembersAsync("finance_analysts", ["carol"]);
+        Assert.NotNull(addedMembers);
+        Assert.Equal(3, addedMembers.Members.Count);
+
+        await client.RemoveApiGroupMemberAsync("finance_analysts", "carol");
+        await client.DeleteApiGroupAsync("finance_analysts");
+
+        var pGroups = await client.GetPipelineGroupsAsync();
+        Assert.Single(pGroups);
+        Assert.Equal("fin_*", pGroups[0].NamePattern);
+
+        var upsertedPg = await client.UpsertPipelineGroupAsync("finance_etl", "Finance ETL", "fin_*", ["fin_p1", "fin_p2"]);
+        Assert.NotNull(upsertedPg);
+        Assert.Equal(2, upsertedPg.Pipelines.Count);
+
+        var addedPipes = await client.AddPipelinesToGroupAsync("finance_etl", ["fin_p3"]);
+        Assert.NotNull(addedPipes);
+        Assert.Equal(3, addedPipes.Pipelines.Count);
+
+        await client.RemovePipelineFromGroupAsync("finance_etl", "fin_p3");
+        await client.DeletePipelineGroupAsync("finance_etl");
+
+        var acls = await client.GetPipelineAclsAsync("group", "finance_analysts", "pipeline_group", "finance_etl");
+        Assert.Single(acls);
+
+        var createdAcl = await client.UpsertPipelineAclAsync(new PipelineAclRecord
+        {
+            PrincipalType = "user",
+            PrincipalName = "alice",
+            TargetType = "*",
+            TargetName = "ignored",
+            Permissions = "read",
+            Effect = "deny"
+        });
+        Assert.NotNull(createdAcl);
+        Assert.Equal("*", createdAcl.TargetName);
+
+        var updatedAcl = await client.UpdatePipelineAclAsync(6, new PipelineAclRecord
+        {
+            PrincipalType = "user",
+            PrincipalName = "alice",
+            TargetType = "pipeline",
+            TargetName = "fin_p1",
+            Permissions = "delete",
+            Effect = "deny"
+        });
+        Assert.NotNull(updatedAcl);
+        Assert.Equal("fin_p1", updatedAcl.TargetName);
+
+        await client.DeletePipelineAclAsync(6);
+
+        var eff = await client.GetEffectivePermissionsAsync("alice", "finance_analysts,extra_grp");
+        Assert.NotNull(eff);
+        Assert.True(eff.StrictAcl);
+        Assert.Single(eff.Pipelines);
+        Assert.True(eff.Pipelines[0].Actions["execute"]);
+
+        // Failure branches
+        failMode = true;
+        await Assert.ThrowsAsync<InvalidOperationException>(() => client.UpdatePipelineAclAsync(6, new PipelineAclRecord()));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => client.GetEffectivePermissionsAsync("alice"));
+    }
+
+    [Fact]
+    public async Task GetEffectivePermissionsAsync_WithNullArraysAndPipelineNameFormat_NeverProducesNullCollections()
+    {
+        int callNum = 0;
+        var handler = new FakeHttpMessageHandler(_ =>
+        {
+            callNum++;
+            if (callNum == 1)
+            {
+                return FakeHttpMessageHandler.JsonResponse("""
+                {
+                  "username": "no_groups_user",
+                  "global_permission": "write",
+                  "groups": null,
+                  "strict_acl": true,
+                  "creatable_groups": null,
+                  "pipelines": null
+                }
+                """);
+            }
+
+            return FakeHttpMessageHandler.JsonResponse("""
+            {
+              "username": "go_schema_user",
+              "global_permission": "scoped",
+              "groups": null,
+              "strict_acl": true,
+              "pipelines": [
+                {
+                  "pipeline_name": "ledger_daily",
+                  "groups": null,
+                  "allowed_actions": ["read", "execute"],
+                  "denied_actions": ["delete"]
+                }
+              ]
+            }
+            """);
+        });
+
+        var client = CreateClient(handler, out _);
+
+        var effNulls = await client.GetEffectivePermissionsAsync("no_groups_user");
+        Assert.NotNull(effNulls);
+        Assert.NotNull(effNulls.Groups);
+        Assert.Empty(effNulls.Groups);
+        Assert.NotNull(effNulls.CreatableGroups);
+        Assert.Empty(effNulls.CreatableGroups);
+        Assert.NotNull(effNulls.Pipelines);
+        Assert.Empty(effNulls.Pipelines);
+
+        // Non-admin 'write' user with strict_acl:true and 0 ACLs ends up with NO pipeline permissions
+        var nonAdminUser = FlowApiClient.MapApiPermissionToUser("no_groups_user", "write", "ApiBasic");
+        FlowApiClient.ApplyEffectivePermissions(nonAdminUser, effNulls);
+        Assert.False(nonAdminUser.CanCreate);
+        Assert.False(nonAdminUser.CanRead);
+        Assert.False(nonAdminUser.CanUpdate);
+        Assert.False(nonAdminUser.CanDelete);
+        Assert.False(nonAdminUser.CanExecute);
+
+        var effGoSchema = await client.GetEffectivePermissionsAsync("go_schema_user");
+        Assert.NotNull(effGoSchema);
+        Assert.NotNull(effGoSchema.Groups);
+        Assert.Single(effGoSchema.Pipelines);
+        Assert.Equal("ledger_daily", effGoSchema.Pipelines[0].Pipeline);
+        Assert.NotNull(effGoSchema.Pipelines[0].Groups);
+        Assert.True(effGoSchema.Pipelines[0].Actions["read"]);
+        Assert.True(effGoSchema.Pipelines[0].Actions["execute"]);
+        Assert.False(effGoSchema.Pipelines[0].Actions["delete"]);
+    }
 }

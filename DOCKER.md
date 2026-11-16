@@ -1,6 +1,6 @@
-# FlowUI Docker & Docker Compose Guide
+# FlowUI Docker & Docker Compose Guide (`v1.3.1`)
 
-This guide explains how to build, configure, and run **FlowUI** in Docker using either **Linux containers** (default) or **Windows containers**, across all supported deployment topologies.
+This guide explains how to build, configure, and run **FlowUI `v1.3.1`** (with **`go-flowAPI v1.3.1`**) in Docker using either **Linux containers** (default) or **Windows containers**, across all supported deployment topologies.
 
 > **Architecture Note:** `FlowUI` communicates **strictly via `go-flowAPI`** (`FlowApiClient`) to load, save, upload, delete, and execute pipelines, configs, and options. `FlowUI` has **no direct database connection** and **no internal database**.
 
@@ -16,7 +16,7 @@ This guide explains how to build, configure, and run **FlowUI** in Docker using 
 | [`docker-compose.api.yml`](./docker-compose.api.yml) | Linux | `FlowUI` + `go-flow-api` | **Combination 2**: Builds and runs both `FlowUI` and `../go-flowAPI` (with `../go-flow` build context); `go-flow-api` connects to an external SQL Server. |
 | [`docker-compose.full.yml`](./docker-compose.full.yml) | Linux | `FlowUI` + `go-flow-api` + `sqlserver` + `sqlserver-init` | **Combination 3 (Full Stack)**: Self-contained stack with SQL Server 2022, automatic `EXAMPLE_DB` database & table initialization for `go-flowAPI`, `go-flowAPI`, and `FlowUI`. |
 | [`docker-compose.windows.yml`](./docker-compose.windows.yml) | Windows | `FlowUI` | **Windows Container Mode**: Builds `Dockerfile.windows` with `FLOW_UI_AUTH_MODE=Windows`. |
-| [`docker/init/sqlserver-init.sql`](./docker/init/sqlserver-init.sql) | SQL Server | `sqlserver-init` | Idempotent SQL script that creates the `EXAMPLE_DB` database and core `flow_*` / `pipeline_*` tables for `go-flowAPI` on startup. |
+| [`docker/init/sqlserver-init.sql`](./docker/init/sqlserver-init.sql) | SQL Server | `sqlserver-init` | Idempotent SQL script that creates the `EXAMPLE_DB` database and all 12 core, group, and granular pipeline ACL `flow_*` / `pipeline_*` tables for `go-flowAPI v1.3.1` on startup. |
 | [`.env.example`](./.env.example) | Both | All | Template environment variables file for Docker Compose. |
 
 ---
