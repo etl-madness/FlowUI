@@ -161,13 +161,13 @@
     <Property Name="sonar.java.jvmframeworkconfig.activate">true</Property>
     <Property Name="sonar.updatecenter.url">https://downloads.sonarsource.com/sonarqube/update/update-center.properties</Property>
     <Property Name="sonar.core.id">147B411E-AaG2VrZQKgEz7QcXp9UE</Property>
-    <Property Name="sonar.core.startTime">11/8/2026 3:54:06 PM</Property>
+    <Property Name="sonar.core.startTime">11/19/2026 9:47:22 AM</Property>
   </ServerSettings>
   <LocalSettings>
     <Property Name="sonar.host.url">http://localhost:9000</Property>
-    <Property Name="sonar.cs.vstest.reportsPaths">C:\Users\U00001\source\repos\etl-madness\flowUI\TestResults\20261108-181534\**\*.trx</Property>
-    <Property Name="sonar.cs.opencover.reportsPaths">C:\Users\U00001\source\repos\etl-madness\flowUI\TestResults\20261108-181534\**\coverage.opencover.xml</Property>
-    <Property Name="sonar.exclusions">**/*.min.js,**/wwwroot/lib/**,**/node_modules/**,C:\Users\U00001\source\repos\etl-madness\flowUI\TestResults\20261108-181534\**\coverage.opencover.xml</Property>
+    <Property Name="sonar.cs.vstest.reportsPaths">C:\Users\U00001\source\repos\etl-madness\flowUI\TestResults\20261119-094752\**\*.trx</Property>
+    <Property Name="sonar.cs.opencover.reportsPaths">C:\Users\U00001\source\repos\etl-madness\flowUI\TestResults\20261119-094752\**\coverage.opencover.xml</Property>
+    <Property Name="sonar.exclusions">**/*.min.js,**/wwwroot/lib/**,**/node_modules/**,C:\Users\U00001\source\repos\etl-madness\flowUI\TestResults\20261119-094752\**\coverage.opencover.xml</Property>
   </LocalSettings>
   <ScannerOptsSettings />
   <AnalyzersSettings>
@@ -178,10 +178,10 @@
       <AnalyzerPlugins>
         <AnalyzerPlugin Key="csharp" Version="10.35.0.4138" StaticResourceName="SonarAnalyzer-csharp-10.35.0.4138.zip">
           <AssemblyPaths>
-            <Path>C:\Users\U00001\AppData\Local\Temp\.sonarqube\resources\0\SonarAnalyzer.CSharp.dll</Path>
-            <Path>C:\Users\U00001\AppData\Local\Temp\.sonarqube\resources\0\licenses\LICENSE.txt</Path>
-            <Path>C:\Users\U00001\AppData\Local\Temp\.sonarqube\resources\0\licenses\THIRD_PARTY_LICENSES\Google.Protobuf-LICENSE.txt</Path>
-            <Path>C:\Users\U00001\AppData\Local\Temp\.sonarqube\resources\0\licenses\THIRD_PARTY_LICENSES\Roslyn-LICENSE.txt</Path>
+            <Path>C:\Users\U00001\AppData\Local\Temp\.sonarqube\resources\2\SonarAnalyzer.CSharp.dll</Path>
+            <Path>C:\Users\U00001\AppData\Local\Temp\.sonarqube\resources\2\licenses\LICENSE.txt</Path>
+            <Path>C:\Users\U00001\AppData\Local\Temp\.sonarqube\resources\2\licenses\THIRD_PARTY_LICENSES\Google.Protobuf-LICENSE.txt</Path>
+            <Path>C:\Users\U00001\AppData\Local\Temp\.sonarqube\resources\2\licenses\THIRD_PARTY_LICENSES\Roslyn-LICENSE.txt</Path>
           </AssemblyPaths>
         </AnalyzerPlugin>
       </AnalyzerPlugins>
@@ -196,10 +196,10 @@
       <AnalyzerPlugins>
         <AnalyzerPlugin Key="vbnet" Version="10.35.0.4138" StaticResourceName="SonarAnalyzer-vbnet-10.35.0.4138.zip">
           <AssemblyPaths>
-            <Path>C:\Users\U00001\AppData\Local\Temp\.sonarqube\resources\1\SonarAnalyzer.VisualBasic.dll</Path>
-            <Path>C:\Users\U00001\AppData\Local\Temp\.sonarqube\resources\1\licenses\LICENSE.txt</Path>
-            <Path>C:\Users\U00001\AppData\Local\Temp\.sonarqube\resources\1\licenses\THIRD_PARTY_LICENSES\Google.Protobuf-LICENSE.txt</Path>
-            <Path>C:\Users\U00001\AppData\Local\Temp\.sonarqube\resources\1\licenses\THIRD_PARTY_LICENSES\Roslyn-LICENSE.txt</Path>
+            <Path>C:\Users\U00001\AppData\Local\Temp\.sonarqube\resources\3\SonarAnalyzer.VisualBasic.dll</Path>
+            <Path>C:\Users\U00001\AppData\Local\Temp\.sonarqube\resources\3\licenses\LICENSE.txt</Path>
+            <Path>C:\Users\U00001\AppData\Local\Temp\.sonarqube\resources\3\licenses\THIRD_PARTY_LICENSES\Google.Protobuf-LICENSE.txt</Path>
+            <Path>C:\Users\U00001\AppData\Local\Temp\.sonarqube\resources\3\licenses\THIRD_PARTY_LICENSES\Roslyn-LICENSE.txt</Path>
           </AssemblyPaths>
         </AnalyzerPlugin>
       </AnalyzerPlugins>

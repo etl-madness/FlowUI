@@ -12,7 +12,7 @@ namespace FlowUI.Services;
 /// active modals, theme selection, and in-memory session telemetry.
 /// All artifact retrieval, validation, execution, and persistence go strictly through go-flowAPI.
 /// </summary>
-public sealed class StudioStateService
+public sealed partial class StudioStateService
 {
     private readonly FlowApiClient _api;
     private readonly IAuthenticationService _auth;
@@ -375,10 +375,15 @@ public sealed class StudioStateService
         }
         catch (Exception ex)
         {
-            _logger.LogDebug(ex, "Listing {ArtifactType} artifacts returned an error (may be unauthorized for scoped user).", artifactType);
+            LogListingArtifactsError(_logger, ex, artifactType);
             return new List<ArtifactRecord>();
         }
     }
+
+    [LoggerMessage(
+        Level = LogLevel.Debug,
+        Message = "Listing {ArtifactType} artifacts returned an error (may be unauthorized for scoped user).")]
+    private static partial void LogListingArtifactsError(ILogger logger, Exception ex, string artifactType);
 
     private static List<ArtifactRecord> NormalizeArtifactList(List<ArtifactRecord> apiList, string artifactType)
     {
