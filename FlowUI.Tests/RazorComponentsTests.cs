@@ -74,16 +74,20 @@ public class RazorComponentsTests
             return path switch
             {
                 "/api/v1/health" => FakeHttpMessageHandler.JsonResponse("""{"status":"ok","dialect":"sqlserver"}"""),
-                "/api/v1/artifacts/pipeline" => FakeHttpMessageHandler.JsonResponse("""[{"id":1,"name":"pipe_1","type":"pipeline","content":"<pipeline name=\"pipe_1\"><flow><sql id=\"s1\" db=\"default_db\">SELECT 1;</sql></flow></pipeline>"}]"""),
+                "/api/v1/artifacts/pipeline" => FakeHttpMessageHandler.JsonResponse("""[{"id":1,"name":"pipe_1","type":"pipeline","groups":["finance_etl"],"content":"<pipeline name=\"pipe_1\"><flow><sql id=\"s1\" db=\"default_db\">SELECT 1;</sql></flow></pipeline>"}]"""),
                 "/api/v1/artifacts/config" => FakeHttpMessageHandler.JsonResponse("""[{"id":2,"name":"cfg_1","type":"config","content":"<pipeline name=\"cfg_1\"><variables><variable name=\"a\" value=\"1\"/></variables></pipeline>"}]"""),
                 "/api/v1/artifacts/options" => FakeHttpMessageHandler.JsonResponse("""[{"id":3,"name":"opt_1","type":"options","content":"<flow_cli_options><node-output>true</node-output></flow_cli_options>"}]"""),
                 "/api/v1/validate" => FakeHttpMessageHandler.JsonResponse("""{"status":"VALID","formatted_output":"Valid XML"}"""),
                 "/api/v1/execute" => FakeHttpMessageHandler.JsonResponse("""{"run_id":"run-1","status":"SUCCESS","formatted_output":"","results":[{"node_id":"verify_connection","kind":"sql","status":"SUCCESS","node_output":"1 row"},{"node_id":"step_new","kind":"script","status":"FAILED","error":"err_msg"}]}"""),
                 "/api/v1/execute/stream" => new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(sse, Encoding.UTF8, "text/event-stream") },
-                "/api/v1/runs" => FakeHttpMessageHandler.JsonResponse("""{"runs":[{"run_id":"run-1","status":"SUCCESS","db_user_name":"dbo","spid":52,"duration_ms":15,"started_at":"2026-01-01T00:00:00Z"}]}"""),
+                "/api/v1/runs" => FakeHttpMessageHandler.JsonResponse("""{"runs":[{"run_id":"run-1","status":"SUCCESS","hostname":"etl-node-01","db_user_name":"dbo","spid":52,"duration_ms":15,"started_at":"2026-01-01T00:00:00Z"}]}"""),
                 "/api/v1/events" => FakeHttpMessageHandler.JsonResponse("""{"events":[{"id":1,"run_id":"run-1","node_id":"verify_connection","node_kind":"sql","status":"SUCCESS","db_user_name":"dbo","spid":"52->54","rows_read":5,"output_text":"out","occurred_at":"2026-01-01T00:00:02Z"},{"id":2,"run_id":"run-1","node_id":"from_evt","node_kind":"log","status":"SUCCESS","rows_written":2,"occurred_at":"2026-01-01T00:00:03Z"}]}"""),
                 "/api/v1/audit" => FakeHttpMessageHandler.JsonResponse("""{"api_events":[{"event_id":1,"http_method":"POST","path":"/api/v1/execute","status":"SUCCESS","status_code":200}]}"""),
-                "/api/v1/users" => FakeHttpMessageHandler.JsonResponse("""{"users":[{"username":"admin","permission":"all","is_active":true},{"username":"op","permission":"write","is_active":true}]}"""),
+                "/api/v1/users" => FakeHttpMessageHandler.JsonResponse("""{"users":[{"username":"admin","permission":"all","is_active":true,"groups":["admins"]},{"username":"op","permission":"scoped","is_active":true,"groups":["finance_analysts"]}]}"""),
+                "/api/v1/groups" => FakeHttpMessageHandler.JsonResponse("""{"groups":[{"id":1,"name":"finance_analysts","description":"Finance team","members":["op","CORP\\bob"]}]}"""),
+                "/api/v1/pipeline-groups" => FakeHttpMessageHandler.JsonResponse("""{"pipeline_groups":[{"id":1,"name":"finance_etl","description":"Finance pipelines","name_pattern":"pipe_*","pipelines":["pipe_1"]}]}"""),
+                "/api/v1/acls" => FakeHttpMessageHandler.JsonResponse("""{"acls":[{"id":1,"principal_type":"group","principal_name":"finance_analysts","target_type":"pipeline_group","target_name":"finance_etl","permissions":"read,execute","effect":"allow","description":"Allow finance"},{"id":2,"principal_type":"user","principal_name":"op","target_type":"*","target_name":"*","permissions":"delete","effect":"deny","description":"Block deletes"}]}"""),
+                "/api/v1/permissions/effective" => FakeHttpMessageHandler.JsonResponse("""{"username":"op","global_permission":"scoped","strict_acl":true,"groups":["finance_analysts"],"can_create_ungrouped":false,"creatable_groups":["finance_etl"],"can_execute_inline_xml":false,"pipelines":[{"pipeline":"pipe_1","groups":["finance_etl"],"actions":{"create":false,"read":true,"update":false,"delete":false,"execute":true}}]}"""),
                 "/api/v1/db/test" => FakeHttpMessageHandler.JsonResponse("""{"connected":true,"dialect":"sqlserver","db_user":"sa","spid":52}"""),
                 "/api/v1/crypto/keygen" => FakeHttpMessageHandler.JsonResponse("""{"format":"openssl","algorithm":"ECDSA-P256","private_key_pem":"PRIV","public_key_pem":"PUB","certificate_pem":"CERT"}"""),
                 _ => FakeHttpMessageHandler.JsonResponse("{}")
@@ -323,7 +327,10 @@ public class RazorComponentsTests
 
             var logs = await renderer.RenderComponentAsync<LogsTab>();
             var logsInst = activator.Get<LogsTab>();
-            Assert.Contains("Pipeline Runs", logs.ToHtmlString());
+            var logsHtml = logs.ToHtmlString();
+            Assert.Contains("Pipeline Runs", logsHtml);
+            Assert.Contains("Hostname", logsHtml);
+            Assert.Contains("etl-node-01", logsHtml);
 
             await InvokeTaskAsync(logsInst, "OnRunStatusFilterChangedAsync", new ChangeEventArgs { Value = "succeeded" });
             await InvokeTaskAsync(logsInst, "SwitchSubTabAsync", "ui_events");
@@ -420,6 +427,132 @@ public class RazorComponentsTests
             Invoke(cryptoInst, "ClearSignatureFromDraft");
 
             await InvokeTaskAsync(homeInst, "HandleLogoutAsync");
+        });
+    }
+
+    [Fact]
+    public async Task SettingsTab_GranularAccessControlSubTabs_RenderAndExecuteGroupPipelineGroupAclAndEffectiveActions()
+    {
+        var (renderer, activator, studio, _) = CreateTestHost();
+        await studio.InitializeStudioAsync();
+
+        await renderer.Dispatcher.InvokeAsync(async () =>
+        {
+            var root = await renderer.RenderComponentAsync<SettingsTab>();
+            var inst = activator.Get<SettingsTab>();
+
+            // Artifacts pipeline group filter & JumpToPipelineAcl
+            SetField(inst, "_artifactPipelineGroupFilter", "finance_etl");
+            Invoke(inst, "StateHasChanged");
+            Assert.Contains("pipe_1", root.ToHtmlString());
+
+            SetField(inst, "_artifactPipelineGroupFilter", "__ungrouped__");
+            Invoke(inst, "StateHasChanged");
+            Invoke(inst, "ClearArtifactFilter");
+            Invoke(inst, "JumpToPipelineAcl", "pipe_1");
+            Invoke(inst, "StateHasChanged");
+            Assert.Contains("Pipeline ACL Rule", root.ToHtmlString());
+
+            // Sub-tab 1: API Users with scoped role + groups
+            SetField(inst, "_accessSubTab", "users");
+            Invoke(inst, "PopulateApiUserForm", new ApiUserRecord
+            {
+                Username = "op",
+                Permission = "scoped",
+                Description = "Scoped finance analyst",
+                IsActive = true,
+                Groups = ["finance_analysts", "custom_grp"]
+            });
+            Invoke(inst, "StateHasChanged");
+            Assert.Contains("Scoped ACL Mode", root.ToHtmlString());
+            await InvokeTaskAsync(inst, "SaveApiUserAsync");
+
+            // Sub-tab 2: API User Groups
+            SetField(inst, "_accessSubTab", "groups");
+            Invoke(inst, "StateHasChanged");
+            Assert.Contains("Upsert API User Group", root.ToHtmlString());
+            Invoke(inst, "PopulateApiGroupForm", new ApiGroupRecord
+            {
+                Id = 1,
+                Name = "finance_analysts",
+                Description = "Finance team",
+                Members = ["op", "CORP\\bob"]
+            });
+            await InvokeTaskAsync(inst, "SaveApiGroupAsync");
+            await InvokeTaskAsync(inst, "RemoveGroupMemberAsync", "finance_analysts", "CORP\\bob");
+            await InvokeTaskAsync(inst, "DeleteApiGroupAsync", "finance_analysts");
+            Invoke(inst, "ResetApiGroupForm");
+
+            // Sub-tab 3: Pipeline Groups
+            SetField(inst, "_accessSubTab", "pipeline_groups");
+            Invoke(inst, "StateHasChanged");
+            Assert.Contains("Upsert Pipeline Group", root.ToHtmlString());
+            Invoke(inst, "PopulatePipelineGroupForm", new PipelineGroupRecord
+            {
+                Id = 1,
+                Name = "finance_etl",
+                Description = "Finance ETL",
+                NamePattern = "pipe_*",
+                Pipelines = ["pipe_1", "custom_pipe"]
+            });
+            await InvokeTaskAsync(inst, "SavePipelineGroupAsync");
+            await InvokeTaskAsync(inst, "RemovePipelineFromGroupAsync", "finance_etl", "pipe_1");
+            await InvokeTaskAsync(inst, "DeletePipelineGroupAsync", "finance_etl");
+            Invoke(inst, "ResetPipelineGroupForm");
+
+            // Sub-tab 4: Granular Pipeline ACL Rules
+            SetField(inst, "_accessSubTab", "acls");
+            Invoke(inst, "OpenNewAclForPrincipal", "group", "finance_analysts");
+            Invoke(inst, "OnAclTargetTypeChanged", new ChangeEventArgs { Value = "*" });
+            Invoke(inst, "ToggleAclAction", "all", true);
+            Invoke(inst, "ToggleAclAction", "read", true);
+            Invoke(inst, "StateHasChanged");
+            Assert.Contains("Evaluation Precedence", root.ToHtmlString());
+            await InvokeTaskAsync(inst, "SavePipelineAclAsync");
+
+            Invoke(inst, "PopulateAclForm", new PipelineAclRecord
+            {
+                Id = 1,
+                PrincipalType = "group",
+                PrincipalName = "finance_analysts",
+                TargetType = "pipeline_group",
+                TargetName = "finance_etl",
+                Permissions = "read,execute",
+                Effect = "allow",
+                Description = "Allow finance"
+            });
+            SetField(inst, "_aclSearchQuery", "finance");
+            SetField(inst, "_aclEffectFilter", "allow");
+            Invoke(inst, "StateHasChanged");
+            await InvokeTaskAsync(inst, "SavePipelineAclAsync");
+            await InvokeTaskAsync(inst, "DeletePipelineAclAsync", 1);
+            Invoke(inst, "ResetAclForm");
+
+            // Sub-tab 5: Effective Permissions Inspector (including regression check for null collection setters)
+            await InvokeTaskAsync(inst, "InspectUserEffectivePermissionsAsync", "op");
+            SetField(inst, "_effSimulatedGroupsCsv", "finance_analysts,extra_grp");
+            SetField(inst, "_effPipelineFilter", "pipe");
+            await InvokeTaskAsync(inst, "EvaluateEffectivePermissionsAsync");
+            Invoke(inst, "StateHasChanged");
+            Assert.Contains("Effective Pipeline Permissions Inspector", root.ToHtmlString());
+            Assert.Contains("Strict ACL (Scoped)", root.ToHtmlString());
+
+            // Verify rendering when EffectivePermissionsResponseDto has null-assigned Groups / CreatableGroups / Pipelines
+            var nullDto = new EffectivePermissionsResponseDto
+            {
+                Username = "ungrouped_non_admin",
+                GlobalPermission = "read-only",
+                StrictAcl = true,
+                Groups = null!,
+                CreatableGroups = null!,
+                Pipelines = null!
+            };
+            SetField(inst, "_effectivePerms", nullDto);
+            Invoke(inst, "StateHasChanged");
+            Assert.Contains("Resolved User Groups (0)", root.ToHtmlString());
+            Assert.Contains("No group memberships", root.ToHtmlString());
+
+            await InvokeTaskAsync(inst, "InspectMyEffectivePermissionsAsync");
         });
     }
 }

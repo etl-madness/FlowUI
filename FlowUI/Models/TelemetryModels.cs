@@ -64,6 +64,10 @@ public abstract class TelemetryContextBase
     [JsonPropertyName("hostname")]
     public string Hostname { get; set; } = string.Empty;
 
+    [JsonIgnore]
+    public string EffectiveHostname =>
+        !string.IsNullOrWhiteSpace(Hostname) ? Hostname : "-";
+
     [JsonPropertyName("options_path")]
     public string OptionsPath { get; set; } = string.Empty;
 
@@ -498,14 +502,113 @@ public sealed class DbPingTestResult
 
 public sealed class ApiUserRecord
 {
+    private List<string> _groups = new();
+
     [JsonPropertyName("username")]
     public string Username { get; set; } = string.Empty;
 
     [JsonPropertyName("permission")]
-    public string Permission { get; set; } = "read-only";
+    public string Permission { get; set; } = "scoped";
 
     [JsonPropertyName("is_active")]
     public bool IsActive { get; set; } = true;
+
+    [JsonPropertyName("description")]
+    public string Description { get; set; } = string.Empty;
+
+    [JsonPropertyName("groups")]
+    public List<string> Groups
+    {
+        get => _groups;
+        set => _groups = value ?? new();
+    }
+
+    [JsonPropertyName("created_at")]
+    public DateTime CreatedAt { get; set; }
+
+    [JsonPropertyName("updated_at")]
+    public DateTime UpdatedAt { get; set; }
+}
+
+public sealed class ApiGroupRecord
+{
+    private List<string> _members = new();
+
+    [JsonPropertyName("id")]
+    public int Id { get; set; }
+
+    [JsonPropertyName("name")]
+    public string Name { get; set; } = string.Empty;
+
+    [JsonPropertyName("description")]
+    public string Description { get; set; } = string.Empty;
+
+    [JsonPropertyName("members")]
+    public List<string> Members
+    {
+        get => _members;
+        set => _members = value ?? new();
+    }
+
+    [JsonPropertyName("created_at")]
+    public DateTime CreatedAt { get; set; }
+
+    [JsonPropertyName("updated_at")]
+    public DateTime UpdatedAt { get; set; }
+}
+
+public sealed class PipelineGroupRecord
+{
+    private List<string> _pipelines = new();
+
+    [JsonPropertyName("id")]
+    public int Id { get; set; }
+
+    [JsonPropertyName("name")]
+    public string Name { get; set; } = string.Empty;
+
+    [JsonPropertyName("description")]
+    public string Description { get; set; } = string.Empty;
+
+    [JsonPropertyName("name_pattern")]
+    public string NamePattern { get; set; } = string.Empty;
+
+    [JsonPropertyName("pipelines")]
+    public List<string> Pipelines
+    {
+        get => _pipelines;
+        set => _pipelines = value ?? new();
+    }
+
+    [JsonPropertyName("created_at")]
+    public DateTime CreatedAt { get; set; }
+
+    [JsonPropertyName("updated_at")]
+    public DateTime UpdatedAt { get; set; }
+}
+
+public sealed class PipelineAclRecord
+{
+    [JsonPropertyName("id")]
+    public int Id { get; set; }
+
+    [JsonPropertyName("principal_type")]
+    public string PrincipalType { get; set; } = "group";
+
+    [JsonPropertyName("principal_name")]
+    public string PrincipalName { get; set; } = string.Empty;
+
+    [JsonPropertyName("target_type")]
+    public string TargetType { get; set; } = "pipeline_group";
+
+    [JsonPropertyName("target_name")]
+    public string TargetName { get; set; } = string.Empty;
+
+    [JsonPropertyName("permissions")]
+    public string Permissions { get; set; } = "read,execute";
+
+    [JsonPropertyName("effect")]
+    public string Effect { get; set; } = "allow";
 
     [JsonPropertyName("description")]
     public string Description { get; set; } = string.Empty;
@@ -515,4 +618,121 @@ public sealed class ApiUserRecord
 
     [JsonPropertyName("updated_at")]
     public DateTime UpdatedAt { get; set; }
+}
+
+public sealed class EffectivePipelinePermissionsDto
+{
+    private List<string> _groups = new();
+    private Dictionary<string, bool> _actions = new(StringComparer.OrdinalIgnoreCase);
+    private List<string> _allowedActions = new();
+    private List<string> _deniedActions = new();
+
+    [JsonPropertyName("pipeline")]
+    public string Pipeline { get; set; } = string.Empty;
+
+    [JsonPropertyName("pipeline_name")]
+    public string PipelineNameAlt
+    {
+        get => Pipeline;
+        set
+        {
+            if (!string.IsNullOrWhiteSpace(value))
+            {
+                Pipeline = value;
+            }
+        }
+    }
+
+    [JsonPropertyName("groups")]
+    public List<string> Groups
+    {
+        get => _groups;
+        set => _groups = value ?? new();
+    }
+
+    [JsonPropertyName("actions")]
+    public Dictionary<string, bool> Actions
+    {
+        get => _actions;
+        set => _actions = value is null
+            ? new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase)
+            : new Dictionary<string, bool>(value, StringComparer.OrdinalIgnoreCase);
+    }
+
+    [JsonPropertyName("allowed_actions")]
+    public List<string> AllowedActions
+    {
+        get => _allowedActions;
+        set
+        {
+            _allowedActions = value ?? new();
+            foreach (var act in _allowedActions)
+            {
+                if (!string.IsNullOrWhiteSpace(act))
+                {
+                    _actions[act.Trim()] = true;
+                }
+            }
+        }
+    }
+
+    [JsonPropertyName("denied_actions")]
+    public List<string> DeniedActions
+    {
+        get => _deniedActions;
+        set
+        {
+            _deniedActions = value ?? new();
+            foreach (var act in _deniedActions)
+            {
+                if (!string.IsNullOrWhiteSpace(act))
+                {
+                    _actions[act.Trim()] = false;
+                }
+            }
+        }
+    }
+}
+
+public sealed class EffectivePermissionsResponseDto
+{
+    private List<string> _groups = new();
+    private List<string> _creatableGroups = new();
+    private List<EffectivePipelinePermissionsDto> _pipelines = new();
+
+    [JsonPropertyName("username")]
+    public string Username { get; set; } = string.Empty;
+
+    [JsonPropertyName("global_permission")]
+    public string GlobalPermission { get; set; } = string.Empty;
+
+    [JsonPropertyName("groups")]
+    public List<string> Groups
+    {
+        get => _groups;
+        set => _groups = value ?? new();
+    }
+
+    [JsonPropertyName("strict_acl")]
+    public bool StrictAcl { get; set; }
+
+    [JsonPropertyName("can_create_ungrouped")]
+    public bool CanCreateUngrouped { get; set; }
+
+    [JsonPropertyName("creatable_groups")]
+    public List<string> CreatableGroups
+    {
+        get => _creatableGroups;
+        set => _creatableGroups = value ?? new();
+    }
+
+    [JsonPropertyName("can_execute_inline_xml")]
+    public bool CanExecuteInlineXml { get; set; }
+
+    [JsonPropertyName("pipelines")]
+    public List<EffectivePipelinePermissionsDto> Pipelines
+    {
+        get => _pipelines;
+        set => _pipelines = value ?? new();
+    }
 }

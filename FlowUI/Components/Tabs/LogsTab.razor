@@ -22,9 +22,9 @@
 
     @if (_subTab == "runs")
     {
-        <div style="display:grid; grid-template-columns:540px 1fr; gap:16px; height:calc(100vh - 155px);">
-            <!-- Left Runs Table -->
-            <div class="panel" style="border:1px solid var(--border); border-radius:8px;">
+        <div style="display:grid; grid-template-columns:minmax(0, 1fr); grid-template-rows:minmax(0, 2fr) minmax(0, 3fr); gap:16px; height:calc(100vh - 155px);">
+            <!-- Top Runs Table -->
+            <div class="panel" style="border:1px solid var(--border); border-radius:8px; min-height:0;">
                 <div class="panel-header">
                     <span>Pipeline Runs (@_runs.Count)</span>
                     <select class="form-control" style="width:140px; padding:3px 6px;" value="@_runStatusFilter" @onchange="OnRunStatusFilterChangedAsync">
@@ -34,12 +34,13 @@
                         <option value="running">running</option>
                     </select>
                 </div>
-                <div class="panel-body" style="padding:0;">
+                <div class="panel-body" style="padding:0; overflow:auto;">
                     <table class="data-table" style="margin-top:0;">
                         <thead>
                             <tr>
                                 <th>Run ID / File</th>
                                 <th>Status</th>
+                                <th>Hostname</th>
                                 <th>DB User</th>
                                 <th>Log SPID</th>
                                 <th>Duration</th>
@@ -50,7 +51,7 @@
                             @if (_runs.Count == 0)
                             {
                                 <tr>
-                                    <td colspan="6" style="text-align:center; padding:18px; color:var(--text-muted);">
+                                    <td colspan="7" style="text-align:center; padding:18px; color:var(--text-muted);">
                                         No pipeline runs found.
                                     </td>
                                 </tr>
@@ -67,6 +68,7 @@
                                             <code style="font-size:0.7rem; color:var(--text-muted);">@r.RunId</code>
                                         </td>
                                         <td><span class="badge @GetBadgeClass(r.Status)">@r.Status</span></td>
+                                        <td style="font-size:0.76rem;">@r.EffectiveHostname</td>
                                         <td style="font-size:0.76rem;">@(string.IsNullOrWhiteSpace(r.EffectiveDbUser) ? "-" : r.EffectiveDbUser)</td>
                                         <td><code style="font-size:0.75rem;">@r.EffectiveSpid</code></td>
                                         <td>@r.DurationMs ms</td>
@@ -79,13 +81,13 @@
                 </div>
             </div>
 
-            <!-- Right Step Events for Selected Run -->
-            <div class="panel" style="border:1px solid var(--border); border-radius:8px;">
+            <!-- Bottom Step Events for Selected Run -->
+            <div class="panel" style="border:1px solid var(--border); border-radius:8px; min-height:0;">
                 <div class="panel-header">
                     <span>Step Execution Events @(string.IsNullOrEmpty(_selectedRunId) ? "" : $"for Run {_selectedRunId}") (@_runEvents.Count)</span>
                     <span class="section-badge">Click any row for full output &amp; SQL SPID details</span>
                 </div>
-                <div class="panel-body" style="padding:0;">
+                <div class="panel-body" style="padding:0; overflow:auto;">
                     <table class="data-table" style="margin-top:0;">
                         <thead>
                             <tr>
@@ -105,7 +107,7 @@
                             {
                                 <tr>
                                     <td colspan="9" style="text-align:center; padding:20px; color:var(--text-muted);">
-                                        Select a pipeline run on the left to inspect its node events.
+                                        Select a pipeline run above to inspect its node events.
                                     </td>
                                 </tr>
                             }

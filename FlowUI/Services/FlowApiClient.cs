@@ -234,24 +234,54 @@ public sealed class FlowApiClient
     public void ResetToDefaultAuth() => SetBasicAuthToken(AppConfig.ApiBasicAuthToken);
 
     /// <summary>
-    /// Maps a go-flowAPI permission string ("read-only", "execution-only", "upload", "write", "all")
-    /// to an AppUser with granular UI CRUD + Execute permissions.
+    /// Maps a go-flowAPI permission string ("scoped", "read-only", "execution-only", "upload", "write", "all",
+    /// or comma-separated combinations) to an AppUser with granular UI CRUD + Execute permissions.
     /// </summary>
     public static AppUser MapApiPermissionToUser(
         string username,
         string? apiPermission,
         string providerName,
         string? description = null,
-        bool isActive = true)
+        bool isActive = true,
+        IEnumerable<string>? groups = null)
     {
         var perm = (apiPermission ?? "read-only").Trim().ToLowerInvariant();
-        bool isAdmin = perm is "all" or "admin" or "*";
-        bool canWrite = isAdmin || perm is "write" or "upload" or "write-only" or "upload-only" or "read-write" or "editor";
-        bool canExec = isAdmin || canWrite || perm is "execution-only" or "execute" or "exec" or "run";
+        var tokens = perm.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+        bool isAdmin = false;
+        bool canWrite = false;
+        bool canExec = false;
+
+        foreach (var t in tokens)
+        {
+            if (t is "all" or "admin" or "*")
+            {
+                isAdmin = true;
+            }
+            else if (t is "write" or "upload" or "write-only" or "upload-only" or "read-write" or "editor")
+            {
+                canWrite = true;
+            }
+            else if (t is "execution-only" or "execute" or "exec" or "run")
+            {
+                canExec = true;
+            }
+        }
+
+        canWrite |= isAdmin;
+        canExec |= isAdmin || canWrite;
+
+        var groupList = groups?
+            .Where(g => !string.IsNullOrWhiteSpace(g))
+            .Select(g => g.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList() ?? new List<string>();
 
         return new AppUser
         {
             Username = username.Trim(),
+            ApiPermission = perm,
+            Groups = groupList,
             CanCreate = canWrite,
             CanRead = true,
             CanUpdate = canWrite,
@@ -264,6 +294,57 @@ public sealed class FlowApiClient
                 : description,
             AuthProvider = providerName
         };
+    }
+
+    /// <summary>
+    /// Enriches an AppUser with effective per-pipeline/group permissions returned by /api/v1/permissions/effective,
+    /// enabling UI Create/Update/Delete/Execute controls when a 'scoped' or '-strict-acl' user holds matching ACLs.
+    /// </summary>
+    public static void ApplyEffectivePermissions(AppUser user, EffectivePermissionsResponseDto? eff)
+    {
+        if (user is null || eff is null) return;
+
+        var effGroups = eff.Groups ?? [];
+        if (effGroups.Count > 0)
+        {
+            foreach (var g in effGroups.Where(x => !string.IsNullOrWhiteSpace(x)))
+            {
+                if (!user.Groups.Contains(g.Trim(), StringComparer.OrdinalIgnoreCase))
+                {
+                    user.Groups.Add(g.Trim());
+                }
+            }
+        }
+
+        if (user.IsAdmin) return;
+
+        var effPipelines = eff.Pipelines ?? [];
+        var creatableGroups = eff.CreatableGroups ?? [];
+
+        bool hasAnyAction(string action) =>
+            effPipelines.Any(p => p is not null && p.Actions.TryGetValue(action, out var allowed) && allowed);
+
+        bool canCreate = eff.CanCreateUngrouped || creatableGroups.Count > 0 || hasAnyAction("create");
+        bool canRead = hasAnyAction("read") || canCreate;
+        bool canUpdate = hasAnyAction("update");
+        bool canDelete = hasAnyAction("delete");
+        bool canExecute = eff.CanExecuteInlineXml || hasAnyAction("execute");
+
+        if (eff.StrictAcl)
+        {
+            user.CanCreate = canCreate;
+            user.CanRead = canRead;
+            user.CanUpdate = canUpdate;
+            user.CanDelete = canDelete;
+            user.CanExecute = canExecute;
+            return;
+        }
+
+        user.CanCreate |= canCreate;
+        user.CanRead |= canRead;
+        user.CanUpdate |= canUpdate;
+        user.CanDelete |= canDelete;
+        user.CanExecute |= canExecute;
     }
 
     public async Task<(bool IsOnline, string AuthenticatedAs, string Permission, string StatusSummary)> GetAuthenticatedIdentityAsync(CancellationToken ct = default)
@@ -397,23 +478,31 @@ public sealed class FlowApiClient
 
     public Task<ArtifactRecord> UpsertArtifactAsync(
         string artifactType, string name, string description, string xmlContent,
-        bool encrypted = false, string? secureKey = null, CancellationToken ct = default)
+        bool encrypted = false, string? secureKey = null, CancellationToken ct = default,
+        IEnumerable<string>? groups = null)
     {
         var url = $"/api/v1/artifacts/{Uri.EscapeDataString(artifactType)}?upsert=true"
                 + (string.IsNullOrWhiteSpace(secureKey) ? "" : $"&secure_key={Uri.EscapeDataString(secureKey)}");
-        var payload = new { name = name.Trim(), description = description ?? "", content = xmlContent, xml_content = xmlContent, encrypted, secure_key = secureKey ?? "", upsert = true };
-        var fallback = new ArtifactRecord { Name = name, Description = description ?? "", Content = xmlContent, Type = artifactType, Encrypted = encrypted };
+        var groupArr = groups?.Where(g => !string.IsNullOrWhiteSpace(g)).Select(g => g.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+        object payload = groupArr is { Length: > 0 }
+            ? new { name = name.Trim(), description = description ?? "", content = xmlContent, xml_content = xmlContent, encrypted, secure_key = secureKey ?? "", upsert = true, groups = groupArr }
+            : new { name = name.Trim(), description = description ?? "", content = xmlContent, xml_content = xmlContent, encrypted, secure_key = secureKey ?? "", upsert = true };
+        var fallback = new ArtifactRecord { Name = name, Description = description ?? "", Content = xmlContent, Type = artifactType, Encrypted = encrypted, Groups = groupArr?.ToList() ?? new() };
         return SendArtifactMutationAsync(HttpMethod.Post, url, payload, $"Failed saving {artifactType} '{name}'", fallback, ct);
     }
 
     public Task<ArtifactRecord> UpdateArtifactByIdAsync(
         string artifactType, int id, string description, string xmlContent,
-        bool encrypted = false, string? secureKey = null, CancellationToken ct = default)
+        bool encrypted = false, string? secureKey = null, CancellationToken ct = default,
+        IEnumerable<string>? groups = null)
     {
         var url = $"/api/v1/artifacts/{Uri.EscapeDataString(artifactType)}/id/{id}"
                 + (string.IsNullOrWhiteSpace(secureKey) ? "" : $"?secure_key={Uri.EscapeDataString(secureKey)}");
-        var payload = new { description = description ?? "", content = xmlContent, xml_content = xmlContent, encrypted, secure_key = secureKey ?? "" };
-        var fallback = new ArtifactRecord { Id = id, Description = description ?? "", Content = xmlContent, Type = artifactType, Encrypted = encrypted };
+        var groupArr = groups?.Where(g => !string.IsNullOrWhiteSpace(g)).Select(g => g.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+        object payload = groupArr is { Length: > 0 }
+            ? new { description = description ?? "", content = xmlContent, xml_content = xmlContent, encrypted, secure_key = secureKey ?? "", groups = groupArr }
+            : new { description = description ?? "", content = xmlContent, xml_content = xmlContent, encrypted, secure_key = secureKey ?? "" };
+        var fallback = new ArtifactRecord { Id = id, Description = description ?? "", Content = xmlContent, Type = artifactType, Encrypted = encrypted, Groups = groupArr?.ToList() ?? new() };
         return SendArtifactMutationAsync(HttpMethod.Put, url, payload, $"Failed updating {artifactType} #{id}", fallback, ct);
     }
 
@@ -705,16 +794,28 @@ public sealed class FlowApiClient
         string permission,
         string description,
         bool isActive = true,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        IEnumerable<string>? groups = null)
     {
-        var payload = new
-        {
-            username,
-            password,
-            permission,
-            description,
-            is_active = isActive
-        };
+        var groupArr = groups?.Where(g => !string.IsNullOrWhiteSpace(g)).Select(g => g.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+        object payload = groupArr is { Length: > 0 }
+            ? new
+            {
+                username,
+                password,
+                permission,
+                description,
+                is_active = isActive,
+                groups = groupArr
+            }
+            : new
+            {
+                username,
+                password,
+                permission,
+                description,
+                is_active = isActive
+            };
         using var content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json");
         using var resp = await _http.PostAsync("/api/v1/users", content, ct);
         var body = await resp.Content.ReadAsStringAsync(ct);
@@ -733,6 +834,171 @@ public sealed class FlowApiClient
             var body = await resp.Content.ReadAsStringAsync(ct);
             throw new InvalidOperationException(ExtractErrorMessage(body, $"Failed deleting API user '{username}'"));
         }
+    }
+
+    // =========================================================================
+    // Granular Access Control: User Groups, Pipeline Groups, ACLs & Effective Perms
+    // =========================================================================
+
+    public Task<List<ApiGroupRecord>> GetApiGroupsAsync(CancellationToken ct = default) =>
+        GetListFromJsonAsync<ApiGroupRecord>("/api/v1/groups", "groups", ct);
+
+    public Task<ApiGroupRecord?> UpsertApiGroupAsync(
+        string name,
+        string description,
+        IEnumerable<string>? members = null,
+        CancellationToken ct = default)
+    {
+        var memberArr = members?.Where(m => !string.IsNullOrWhiteSpace(m)).Select(m => m.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).ToArray() ?? Array.Empty<string>();
+        var payload = new
+        {
+            name = name.Trim(),
+            description = description ?? string.Empty,
+            members = memberArr
+        };
+        return PostJsonForObjectAsync<ApiGroupRecord>("/api/v1/groups", payload, $"Failed saving user group '{name}'", ct);
+    }
+
+    public Task DeleteApiGroupAsync(string name, CancellationToken ct = default) =>
+        DeleteCoreAsync($"/api/v1/groups/{Uri.EscapeDataString(name)}", $"Failed deleting user group '{name}'", ct);
+
+    public Task<ApiGroupRecord?> AddApiGroupMembersAsync(
+        string groupName,
+        IEnumerable<string> usernames,
+        CancellationToken ct = default)
+    {
+        var arr = usernames.Where(u => !string.IsNullOrWhiteSpace(u)).Select(u => u.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+        var payload = new { usernames = arr };
+        return PostJsonForObjectAsync<ApiGroupRecord>(
+            $"/api/v1/groups/{Uri.EscapeDataString(groupName)}/members",
+            payload,
+            $"Failed adding members to group '{groupName}'",
+            ct);
+    }
+
+    public Task RemoveApiGroupMemberAsync(string groupName, string username, CancellationToken ct = default) =>
+        DeleteCoreAsync(
+            $"/api/v1/groups/{Uri.EscapeDataString(groupName)}/members/{Uri.EscapeDataString(username)}",
+            $"Failed removing '{username}' from group '{groupName}'",
+            ct);
+
+    public Task<List<PipelineGroupRecord>> GetPipelineGroupsAsync(CancellationToken ct = default) =>
+        GetListFromJsonAsync<PipelineGroupRecord>("/api/v1/pipeline-groups", "pipeline_groups", ct);
+
+    public Task<PipelineGroupRecord?> UpsertPipelineGroupAsync(
+        string name,
+        string description,
+        string? namePattern = null,
+        IEnumerable<string>? pipelines = null,
+        CancellationToken ct = default)
+    {
+        var pipeArr = pipelines?.Where(p => !string.IsNullOrWhiteSpace(p)).Select(p => p.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).ToArray() ?? Array.Empty<string>();
+        var payload = new
+        {
+            name = name.Trim(),
+            description = description ?? string.Empty,
+            name_pattern = namePattern?.Trim() ?? string.Empty,
+            pipelines = pipeArr
+        };
+        return PostJsonForObjectAsync<PipelineGroupRecord>("/api/v1/pipeline-groups", payload, $"Failed saving pipeline group '{name}'", ct);
+    }
+
+    public Task DeletePipelineGroupAsync(string name, CancellationToken ct = default) =>
+        DeleteCoreAsync($"/api/v1/pipeline-groups/{Uri.EscapeDataString(name)}", $"Failed deleting pipeline group '{name}'", ct);
+
+    public Task<PipelineGroupRecord?> AddPipelinesToGroupAsync(
+        string groupName,
+        IEnumerable<string> pipelines,
+        CancellationToken ct = default)
+    {
+        var arr = pipelines.Where(p => !string.IsNullOrWhiteSpace(p)).Select(p => p.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+        var payload = new { pipelines = arr };
+        return PostJsonForObjectAsync<PipelineGroupRecord>(
+            $"/api/v1/pipeline-groups/{Uri.EscapeDataString(groupName)}/pipelines",
+            payload,
+            $"Failed adding pipelines to group '{groupName}'",
+            ct);
+    }
+
+    public Task RemovePipelineFromGroupAsync(string groupName, string pipelineName, CancellationToken ct = default) =>
+        DeleteCoreAsync(
+            $"/api/v1/pipeline-groups/{Uri.EscapeDataString(groupName)}/pipelines/{Uri.EscapeDataString(pipelineName)}",
+            $"Failed removing pipeline '{pipelineName}' from group '{groupName}'",
+            ct);
+
+    public Task<List<PipelineAclRecord>> GetPipelineAclsAsync(
+        string? principalType = null,
+        string? principalName = null,
+        string? targetType = null,
+        string? targetName = null,
+        CancellationToken ct = default)
+    {
+        var query = new List<string>();
+        if (!string.IsNullOrWhiteSpace(principalType)) query.Add($"principal_type={Uri.EscapeDataString(principalType.Trim())}");
+        if (!string.IsNullOrWhiteSpace(principalName)) query.Add($"principal_name={Uri.EscapeDataString(principalName.Trim())}");
+        if (!string.IsNullOrWhiteSpace(targetType)) query.Add($"target_type={Uri.EscapeDataString(targetType.Trim())}");
+        if (!string.IsNullOrWhiteSpace(targetName)) query.Add($"target_name={Uri.EscapeDataString(targetName.Trim())}");
+        var url = query.Count > 0 ? $"/api/v1/acls?{string.Join("&", query)}" : "/api/v1/acls";
+        return GetListFromJsonAsync<PipelineAclRecord>(url, "acls", ct);
+    }
+
+    public Task<PipelineAclRecord?> UpsertPipelineAclAsync(PipelineAclRecord rule, CancellationToken ct = default)
+    {
+        var payload = new
+        {
+            principal_type = rule.PrincipalType.Trim(),
+            principal_name = rule.PrincipalName.Trim(),
+            target_type = rule.TargetType.Trim(),
+            target_name = string.Equals(rule.TargetType.Trim(), "*", StringComparison.Ordinal) ? "*" : rule.TargetName.Trim(),
+            permissions = rule.Permissions.Trim(),
+            effect = string.IsNullOrWhiteSpace(rule.Effect) ? "allow" : rule.Effect.Trim(),
+            description = rule.Description ?? string.Empty
+        };
+        return PostJsonForObjectAsync<PipelineAclRecord>("/api/v1/acls", payload, "Failed saving pipeline ACL rule", ct);
+    }
+
+    public async Task<PipelineAclRecord?> UpdatePipelineAclAsync(int id, PipelineAclRecord rule, CancellationToken ct = default)
+    {
+        var payload = new
+        {
+            principal_type = rule.PrincipalType.Trim(),
+            principal_name = rule.PrincipalName.Trim(),
+            target_type = rule.TargetType.Trim(),
+            target_name = string.Equals(rule.TargetType.Trim(), "*", StringComparison.Ordinal) ? "*" : rule.TargetName.Trim(),
+            permissions = rule.Permissions.Trim(),
+            effect = string.IsNullOrWhiteSpace(rule.Effect) ? "allow" : rule.Effect.Trim(),
+            description = rule.Description ?? string.Empty
+        };
+        using var content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json");
+        using var resp = await _http.PutAsync($"/api/v1/acls/{id}", content, ct);
+        var body = await resp.Content.ReadAsStringAsync(ct);
+        if (!resp.IsSuccessStatusCode)
+        {
+            throw new InvalidOperationException(ExtractErrorMessage(body, $"Failed updating ACL rule #{id}"));
+        }
+        return TryDeserialize<PipelineAclRecord>(body);
+    }
+
+    public Task DeletePipelineAclAsync(int id, CancellationToken ct = default) =>
+        DeleteCoreAsync($"/api/v1/acls/{id}", $"Failed deleting ACL rule #{id}", ct);
+
+    public async Task<EffectivePermissionsResponseDto?> GetEffectivePermissionsAsync(
+        string? username = null,
+        string? simulatedGroups = null,
+        CancellationToken ct = default)
+    {
+        var query = new List<string>();
+        if (!string.IsNullOrWhiteSpace(username)) query.Add($"username={Uri.EscapeDataString(username.Trim())}");
+        if (!string.IsNullOrWhiteSpace(simulatedGroups)) query.Add($"groups={Uri.EscapeDataString(simulatedGroups.Trim())}");
+        var url = query.Count > 0 ? $"/api/v1/permissions/effective?{string.Join("&", query)}" : "/api/v1/permissions/effective";
+
+        using var resp = await _http.GetAsync(url, ct);
+        var body = await resp.Content.ReadAsStringAsync(ct);
+        if (!resp.IsSuccessStatusCode)
+        {
+            throw new InvalidOperationException(ExtractErrorMessage(body, $"Failed querying effective permissions (HTTP {(int)resp.StatusCode})"));
+        }
+        return TryDeserialize<EffectivePermissionsResponseDto>(body);
     }
 
     // =========================================================================

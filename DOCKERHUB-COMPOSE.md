@@ -1,9 +1,9 @@
-# Run FlowUI and go-flowAPI from Docker Hub with Docker Compose
+# Run FlowUI and go-flowAPI (`v1.3.1`) from Docker Hub with Docker Compose
 
-This guide uses the published images instead of building either application from source:
+This guide uses the published images (`latest` or version tag `1.3.1`) instead of building either application from source:
 
-- FlowUI: `etlmadness/flowui:latest`
-- API: `etlmadness/go-flow-api:latest`
+- FlowUI: `etlmadness/flowui:latest` (or `etlmadness/flowui:1.3.1`)
+- API: `etlmadness/go-flow-api:latest` (or `etlmadness/go-flow-api:1.3.1`)
 - Optional SQL Server: `mcr.microsoft.com/mssql/server:2022-latest`
 
 The request listed `etlmadness/go-flow-api` twice; this guide assumes the first image is the FlowUI image, `etlmadness/flowui`. If the FlowUI repository on Docker Hub has a different name, substitute that image reference below.

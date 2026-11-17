@@ -13,7 +13,7 @@
             🔐 Crypto &amp; Signing Keys (/api/v1/crypto) (@Studio.SavedKeyProfiles.Count)
         </button>
         <button type="button" class="btn @(_section == "api_users" ? "btn-primary" : "")" @onclick='() => _section = "api_users"'>
-            🔑 Backend API Users &amp; Permissions (/api/v1/users)
+            🔑 Backend API Users, Groups &amp; ACLs (/api/v1/users · /acls)
         </button>
         <button type="button" class="btn @(_section == "auth_provider" ? "btn-primary" : "")" @onclick='() => _section = "auth_provider"'>
             🔐 Pluggable Authentication Service
@@ -26,6 +26,7 @@
     @if (_section == "artifacts")
     {
         var filteredArtifacts = GetFilteredArtifacts().ToList();
+        var knownPipelineGroups = GetKnownPipelineGroupNames().ToList();
         <div class="panel" style="border:1px solid var(--border); border-radius:8px;">
             <div class="panel-header" style="flex-wrap:wrap; gap:10px;">
                 <div style="display:flex; align-items:center; gap:10px;">
@@ -33,25 +34,36 @@
                     <span class="section-badge">@filteredArtifacts.Count of @TotalArtifactCount shown</span>
                 </div>
                 <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
-                    <input class="form-control" style="width:280px;"
-                           placeholder="🔍 Search by name, type, ID, description, or XML..."
+                    <input class="form-control" style="width:270px;"
+                           placeholder="🔍 Search by name, group, type, ID, description..."
                            @bind="_artifactSearchQuery" @bind:event="oninput" />
-                    <select class="form-control" style="width:185px;" @bind="_artifactTypeFilter">
+                    <select class="form-control" style="width:175px;" @bind="_artifactTypeFilter">
                         <option value="all">All Types (@TotalArtifactCount)</option>
                         <option value="pipeline">🔀 Pipelines (@Studio.Pipelines.Count)</option>
                         <option value="config">⚙️ Configs (@Studio.Configs.Count)</option>
                         <option value="options">🎛 Options (@Studio.OptionsList.Count)</option>
                     </select>
-                    @if (!string.IsNullOrWhiteSpace(_artifactSearchQuery) || _artifactTypeFilter != "all")
+                    @if ((_artifactTypeFilter == "all" || _artifactTypeFilter == "pipeline") && knownPipelineGroups.Count > 0)
+                    {
+                        <select class="form-control" style="width:190px;" @bind="_artifactPipelineGroupFilter">
+                            <option value="all">🗂 All Pipeline Groups</option>
+                            <option value="__ungrouped__">⚪ Ungrouped Pipelines</option>
+                            @foreach (var pgName in knownPipelineGroups)
+                            {
+                                <option value="@pgName">🗂 @pgName</option>
+                            }
+                        </select>
+                    }
+                    @if (!string.IsNullOrWhiteSpace(_artifactSearchQuery) || _artifactTypeFilter != "all" || _artifactPipelineGroupFilter != "all")
                     {
                         <button type="button" class="btn btn-sm" @onclick="ClearArtifactFilter">✕ Clear Filter</button>
                     }
                     <button type="button" class="btn btn-sm"
                             disabled="@(!CanUploadArtifact)"
-                            @onclick='() => Studio.OpenUploadModal(_artifactTypeFilter == "all" ? "pipeline" : _artifactTypeFilter)'>
+                            @onclick="OpenUploadModalFromArtifacts">
                         📂 Upload File...
                     </button>
-                    <button type="button" class="btn btn-sm" @onclick="Studio.RefreshHealthAndArtifactsAsync">
+                    <button type="button" class="btn btn-sm" @onclick="LoadAllSettingsDataAsync">
                         🔄 Refresh
                     </button>
                 </div>
@@ -60,13 +72,13 @@
                 <table class="data-table" style="margin-top:0;">
                     <thead>
                         <tr>
-                            <th style="width:75px;">ID</th>
-                            <th style="width:120px;">Type</th>
-                            <th style="width:240px;">Artifact Name</th>
+                            <th style="width:70px;">ID</th>
+                            <th style="width:115px;">Type</th>
+                            <th style="width:260px;">Artifact Name &amp; Groups</th>
                             <th>Description</th>
-                            <th style="width:165px;">Security Status</th>
-                            <th style="width:155px;">Updated (UTC)</th>
-                            <th style="width:210px;">Actions</th>
+                            <th style="width:160px;">Security Status</th>
+                            <th style="width:150px;">Updated (UTC)</th>
+                            <th style="width:235px;">Actions</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -89,7 +101,18 @@
                                             @GetArtifactTypeIcon(item.Type) @item.Type.ToUpperInvariant()
                                         </span>
                                     </td>
-                                    <td><strong>@item.Name</strong></td>
+                                    <td>
+                                        <div><strong>@item.Name</strong></div>
+                                        @if (item.Groups.Count > 0)
+                                        {
+                                            <div style="display:flex; gap:4px; flex-wrap:wrap; margin-top:4px;">
+                                                @foreach (var grp in item.Groups)
+                                                {
+                                                    <span class="section-badge" style="font-size:0.68rem;">🗂 @grp</span>
+                                                }
+                                            </div>
+                                        }
+                                    </td>
                                     <td style="color:var(--text-muted);">@(string.IsNullOrWhiteSpace(item.Description) ? "—" : item.Description)</td>
                                     <td>
                                         <div style="display:flex; gap:4px; flex-wrap:wrap;">
@@ -99,7 +122,7 @@
                                             }
                                             @if (item.Signed)
                                             {
-                                                <span class="badge badge-success">✍️ Signed (@(string.IsNullOrWhiteSpace(item.SignatureFormat) ? "OPENSSL" : item.SignatureFormat.ToUpperInvariant()))</span>
+                                                <span class="badge badge-success">✍️ Signed (@GetSignatureFormatLabel(item.SignatureFormat))</span>
                                             }
                                             @if (!item.Encrypted && !item.Signed)
                                             {
@@ -111,12 +134,20 @@
                                         @(item.UpdatedAt == default ? "—" : item.UpdatedAt.ToString("yyyy-MM-dd HH:mm"))
                                     </td>
                                     <td>
-                                        <div style="display:flex; gap:6px; align-items:center;">
+                                        <div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap;">
                                             <button type="button" class="btn btn-sm"
                                                     @onclick="() => OpenArtifactInStudioAsync(item)"
                                                     title="Open this artifact in Designer / Editor">
                                                 🎨 Open / Edit
                                             </button>
+                                            @if (CanManageUsers && string.Equals(item.Type, "pipeline", StringComparison.OrdinalIgnoreCase))
+                                            {
+                                                <button type="button" class="btn btn-sm"
+                                                        @onclick='() => JumpToPipelineAcl(item.Name)'
+                                                        title="Create a granular ACL rule for this pipeline">
+                                                    🛡 +ACL
+                                                </button>
+                                            }
                                             <button type="button" class="btn btn-sm btn-danger"
                                                     disabled="@(!CanDeleteArtifact)"
                                                     @onclick="() => DeleteArtifactFromTableAsync(item)"
@@ -136,7 +167,6 @@
     else if (_section == "crypto")
     {
         <div style="display:grid; grid-template-columns:440px 1fr; gap:18px;">
-            <!-- Left: Session Encryption Key & Key Generator -->
             <div style="display:flex; flex-direction:column; gap:16px;">
                 <div class="panel" style="border:1px solid var(--border); border-radius:8px;">
                     <div class="panel-header">
@@ -209,7 +239,6 @@
                 </div>
             </div>
 
-            <!-- Right: Saved Key Profiles Table -->
             <div class="panel" style="border:1px solid var(--border); border-radius:8px;">
                 <div class="panel-header">
                     <span>Saved Signing &amp; Verification Key Profiles (@Studio.SavedKeyProfiles.Count)</span>
@@ -296,108 +325,939 @@
     }
     else if (_section == "api_users")
     {
-        <div style="display:grid; grid-template-columns:390px 1fr; gap:18px;">
-            <div class="panel" style="border:1px solid var(--border); border-radius:8px;">
-                <div class="panel-header">
-                    <span>Upsert Backend <code>go-flowAPI</code> User</span>
-                </div>
-                <div class="panel-body">
-                    <div class="form-group">
-                        <label class="form-label">API Username or Windows User / Group</label>
-                        <input class="form-control" autocomplete="off" @bind="_apiUsername" placeholder="api_operator, DOMAIN\user, or DOMAIN\group" />
-                    </div>
-                    <div class="form-group">
-                        <label class="form-label">API Password (leave blank for Windows User/Group)</label>
-                        <input type="password" class="form-control" autocomplete="new-password" @bind="_apiPassword" placeholder="Leave blank for DOMAIN\user or DOMAIN\group" />
-                    </div>
-                    <div class="form-group">
-                        <label class="form-label">API Permission Level</label>
-                        <select class="form-control" @bind="_apiPermission">
-                            <option value="read-only">read-only (R)</option>
-                            <option value="execution-only">execution-only (R · EXEC)</option>
-                            <option value="upload">upload (C · R · U)</option>
-                            <option value="write">write (C · R · U · D · EXEC)</option>
-                            <option value="all">all (ADMIN)</option>
-                        </select>
-                    </div>
-                    <div class="form-group">
-                        <label class="form-label">Description</label>
-                        <input class="form-control" @bind="_apiDescription" placeholder="ETL Operator / Read-Only Analyst" />
-                    </div>
-                    <div class="form-group">
-                        <label style="display:flex; align-items:center; gap:6px;">
-                            <input type="checkbox" @bind="_apiIsActive" />
-                            <span>Account Active</span>
-                        </label>
-                    </div>
-
-                    <div style="display:flex; justify-content:space-between; gap:8px;">
-                        <button type="button" class="btn" @onclick="ResetApiUserForm">Clear</button>
-                        <button type="button" class="btn btn-primary" disabled="@(!CanManageUsers)" @onclick="SaveApiUserAsync">
-                            💾 Save API User (/api/v1/users)
-                        </button>
-                    </div>
-                </div>
+        <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:14px; flex-wrap:wrap; padding:8px 10px; background:var(--bg-elevated, rgba(15,23,42,0.45)); border:1px solid var(--border); border-radius:8px;">
+            <div style="display:flex; gap:6px; flex-wrap:wrap;">
+                <button type="button" class="btn btn-sm @(_accessSubTab == "users" ? "btn-primary" : "")"
+                        @onclick='() => _accessSubTab = "users"'>
+                    👤 API Users (@_apiUsers.Count)
+                </button>
+                <button type="button" class="btn btn-sm @(_accessSubTab == "groups" ? "btn-primary" : "")"
+                        @onclick='() => _accessSubTab = "groups"'>
+                    👥 User Groups (@_apiGroups.Count)
+                </button>
+                <button type="button" class="btn btn-sm @(_accessSubTab == "pipeline_groups" ? "btn-primary" : "")"
+                        @onclick='() => _accessSubTab = "pipeline_groups"'>
+                    🗂 Pipeline Groups (@_pipelineGroups.Count)
+                </button>
+                <button type="button" class="btn btn-sm @(_accessSubTab == "acls" ? "btn-primary" : "")"
+                        @onclick='() => _accessSubTab = "acls"'>
+                    🛡 Pipeline ACL Rules (@_pipelineAcls.Count)
+                </button>
+                <button type="button" class="btn btn-sm @(_accessSubTab == "effective" ? "btn-primary" : "")"
+                        @onclick="SwitchToEffectiveSubTabAsync">
+                    🔍 Effective Permissions
+                </button>
             </div>
+            <div style="display:flex; gap:6px; align-items:center;">
+                @if (!CanManageUsers)
+                {
+                    <span class="section-badge" title="Admin permission on go-flowAPI is required to modify users, groups, or ACLs">
+                        🔒 Read / Self-Inspect Mode
+                    </span>
+                }
+                <button type="button" class="btn btn-sm" @onclick="LoadAllSettingsDataAsync">
+                    🔄 Sync Access Control
+                </button>
+            </div>
+        </div>
 
-            <div class="panel" style="border:1px solid var(--border); border-radius:8px;">
-                <div class="panel-header">
-                    <span>Backend <code>go-flowAPI</code> Users (@_apiUsers.Count)</span>
-                    <button type="button" class="btn btn-sm" @onclick="LoadAllSettingsDataAsync">🔄 Refresh</button>
-                </div>
-                <div class="panel-body" style="padding:0;">
-                    <table class="data-table" style="margin-top:0;">
-                        <thead>
-                            <tr>
-                                <th>Username</th>
-                                <th>API Permission</th>
-                                <th>Mapped UI Permissions</th>
-                                <th>Active</th>
-                                <th>Description</th>
-                                <th>Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            @if (_apiUsers.Count == 0)
+        @if (_accessSubTab == "users")
+        {
+            <div style="display:grid; grid-template-columns:410px 1fr; gap:18px;">
+                <div class="panel" style="border:1px solid var(--border); border-radius:8px;">
+                    <div class="panel-header">
+                        <span>Upsert Backend <code>go-flowAPI</code> User</span>
+                    </div>
+                    <div class="panel-body">
+                        <div class="form-group">
+                            <label class="form-label">API Username or Windows User / Group</label>
+                            <input class="form-control" autocomplete="off" @bind="_apiUsername" placeholder="api_operator, DOMAIN\user, or DOMAIN\group" />
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">API Password (leave blank for Windows User/Group)</label>
+                            <input type="password" class="form-control" autocomplete="new-password" @bind="_apiPassword" placeholder="Leave blank for DOMAIN\user or existing password" />
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Global Baseline API Permission</label>
+                            <select class="form-control" @bind="_apiPermission">
+                                <option value="scoped">scoped — Granular ACL-only (Recommended default: 0 global rights)</option>
+                                <option value="read-only">read-only (Configs / Options / Audit R; Pipelines require ACLs)</option>
+                                <option value="execution-only">execution-only (Configs / Options R; Pipelines require ACLs)</option>
+                                <option value="upload">upload (Configs / Options C · R · U; Pipelines require ACLs)</option>
+                                <option value="write">write (Configs / Options C · R · U · D; Pipelines require ACLs)</option>
+                                <option value="all">all (ADMIN — Unrestricted full access)</option>
+                            </select>
+                            @if (!string.Equals(_apiPermission?.Trim(), "all", StringComparison.OrdinalIgnoreCase))
                             {
-                                <tr>
-                                    <td colspan="6" style="text-align:center; padding:18px; color:var(--text-muted);">
-                                        No API users returned (ensure you have admin permission on go-flowAPI).
-                                    </td>
-                                </tr>
+                                <div style="margin-top:6px; padding:7px 9px; border-radius:6px; border:1px solid var(--accent, #3b82f6); font-size:0.75rem; color:var(--text-muted); line-height:1.4;">
+                                    🔒 <strong>Scoped ACL Mode (Default Pipeline Deny):</strong> Non-admin accounts have <strong>no access to pipelines</strong> unless granted via <strong>User Groups</strong> and <strong>Pipeline ACL Rules</strong>.
+                                </div>
                             }
-                            else
+                        </div>
+
+                        <div class="form-group">
+                            <label class="form-label">Assign to API User Groups</label>
+                            @if (_apiGroups.Count > 0)
                             {
-                                @foreach (var au in _apiUsers)
+                                <div style="display:flex; gap:6px; flex-wrap:wrap; padding:8px; border:1px solid var(--border); border-radius:6px; max-height:115px; overflow-y:auto; margin-bottom:6px;">
+                                    @foreach (var grp in _apiGroups)
+                                    {
+                                        var isChecked = _selectedUserGroups.Contains(grp.Name);
+                                        <label style="display:inline-flex; align-items:center; gap:5px; font-size:0.78rem; padding:2px 7px; border:1px solid var(--border); border-radius:999px; cursor:pointer;">
+                                            <input type="checkbox" checked="@isChecked"
+                                                   @onchange="e => ToggleSetItem(_selectedUserGroups, grp.Name, e.Value)" />
+                                            <span>👥 @grp.Name</span>
+                                        </label>
+                                    }
+                                </div>
+                            }
+                            <input class="form-control"
+                                   @bind="_apiUserCustomGroupsCsv"
+                                   placeholder="Additional groups (CSV), e.g. finance_analysts, etl_ops" />
+                        </div>
+
+                        <div class="form-group">
+                            <label class="form-label">Description</label>
+                            <input class="form-control" @bind="_apiDescription" placeholder="Scoped Finance Analyst / ETL Operator" />
+                        </div>
+                        <div class="form-group">
+                            <label style="display:flex; align-items:center; gap:6px;">
+                                <input type="checkbox" @bind="_apiIsActive" />
+                                <span>Account Active</span>
+                            </label>
+                        </div>
+
+                        <div style="display:flex; justify-content:space-between; gap:8px;">
+                            <button type="button" class="btn" @onclick="ResetApiUserForm">Clear</button>
+                            <button type="button" class="btn btn-primary" disabled="@(!CanManageUsers)" @onclick="SaveApiUserAsync">
+                                💾 Save API User (/api/v1/users)
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="panel" style="border:1px solid var(--border); border-radius:8px;">
+                    <div class="panel-header">
+                        <span>Backend <code>go-flowAPI</code> Users (@_apiUsers.Count)</span>
+                        <button type="button" class="btn btn-sm" @onclick="LoadAllSettingsDataAsync">🔄 Refresh</button>
+                    </div>
+                    <div class="panel-body" style="padding:0;">
+                        <table class="data-table" style="margin-top:0;">
+                            <thead>
+                                <tr>
+                                    <th>Username</th>
+                                    <th>Global Role</th>
+                                    <th>User Groups</th>
+                                    <th>Baseline UI Badge</th>
+                                    <th>Active</th>
+                                    <th>Description</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @if (_apiUsers.Count == 0)
                                 {
-                                    var mapped = FlowApiClient.MapApiPermissionToUser(au.Username, au.Permission, "ApiBasic", au.Description);
                                     <tr>
-                                        <td><strong>@au.Username</strong></td>
-                                        <td><span class="perm-badge">@au.Permission</span></td>
-                                        <td><span class="perm-badge">@mapped.GetPermissions().ToSummaryBadge()</span></td>
-                                        <td>@(au.IsActive ? "✔ Active" : "✘ Disabled")</td>
-                                        <td>@au.Description</td>
-                                        <td>
-                                            <div style="display:flex; gap:5px;">
-                                                <button type="button" class="btn btn-sm" @onclick="() => PopulateApiUserForm(au)">✎ Edit</button>
-                                                @if (!string.Equals(au.Username, "admin", StringComparison.OrdinalIgnoreCase))
-                                                {
-                                                    <button type="button" class="btn btn-sm btn-danger"
-                                                            disabled="@(!CanManageUsers)"
-                                                            @onclick="() => DeleteApiUserAsync(au.Username)">
-                                                        ✕
-                                                    </button>
-                                                }
-                                            </div>
+                                        <td colspan="7" style="text-align:center; padding:18px; color:var(--text-muted);">
+                                            No API users returned (ensure you have admin permission on go-flowAPI).
                                         </td>
                                     </tr>
                                 }
-                            }
-                        </tbody>
-                    </table>
+                                else
+                                {
+                                    @foreach (var au in _apiUsers)
+                                    {
+                                        var mapped = FlowApiClient.MapApiPermissionToUser(au.Username, au.Permission, "ApiBasic", au.Description, au.IsActive, au.Groups);
+                                        <tr>
+                                            <td><strong>@au.Username</strong></td>
+                                            <td>
+                                                <span class="badge @GetRoleBadgeClass(au.Permission)">@au.Permission</span>
+                                            </td>
+                                            <td>
+                                                @if (au.Groups.Count == 0)
+                                                {
+                                                    <span style="color:var(--text-muted); font-size:0.76rem;">—</span>
+                                                }
+                                                else
+                                                {
+                                                    <div style="display:flex; gap:4px; flex-wrap:wrap;">
+                                                        @foreach (var g in au.Groups)
+                                                        {
+                                                            <span class="section-badge" style="font-size:0.7rem;">👥 @g</span>
+                                                        }
+                                                    </div>
+                                                }
+                                            </td>
+                                            <td>
+                                                <span class="perm-badge">
+                                                    @(string.Equals(au.Permission?.Trim(), "all", StringComparison.OrdinalIgnoreCase) ? mapped.GetPermissions().ToSummaryBadge() : "ACL-REQUIRED")
+                                                </span>
+                                            </td>
+                                            <td>@(au.IsActive ? "✔ Active" : "✘ Disabled")</td>
+                                            <td>@au.Description</td>
+                                            <td>
+                                                <div style="display:flex; gap:5px; flex-wrap:wrap;">
+                                                    <button type="button" class="btn btn-sm"
+                                                            @onclick="() => PopulateApiUserForm(au)"
+                                                            title="Load user into form">
+                                                        ✎ Edit
+                                                    </button>
+                                                    <button type="button" class="btn btn-sm"
+                                                            @onclick="() => InspectUserEffectivePermissionsAsync(au.Username)"
+                                                            title="Inspect effective pipeline permissions for this user">
+                                                        🔍 Effective
+                                                    </button>
+                                                    <button type="button" class="btn btn-sm"
+                                                            disabled="@(!CanManageUsers)"
+                                                            @onclick='() => OpenNewAclForPrincipal("user", au.Username)'
+                                                            title="Create a granular pipeline ACL rule for this user">
+                                                        🛡 +ACL
+                                                    </button>
+                                                    @if (!string.Equals(au.Username, "admin", StringComparison.OrdinalIgnoreCase))
+                                                    {
+                                                        <button type="button" class="btn btn-sm btn-danger"
+                                                                disabled="@(!CanManageUsers)"
+                                                                @onclick="() => DeleteApiUserAsync(au.Username)"
+                                                                title="Delete API user">
+                                                            ✕
+                                                        </button>
+                                                    }
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    }
+                                }
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
             </div>
-        </div>
+        }
+        else if (_accessSubTab == "groups")
+        {
+            <div style="display:grid; grid-template-columns:410px 1fr; gap:18px;">
+                <div class="panel" style="border:1px solid var(--border); border-radius:8px;">
+                    <div class="panel-header">
+                        <span>👥 Upsert API User Group (<code>/api/v1/groups</code>)</span>
+                    </div>
+                    <div class="panel-body">
+                        <p style="font-size:0.77rem; color:var(--text-muted); margin-top:0; line-height:1.4;">
+                            Group BasicAuth API users or Windows/AD identities (e.g. <code>DOMAIN\alice</code>) together and attach granular Pipeline ACLs to the group.
+                        </p>
+                        <div class="form-group">
+                            <label class="form-label">Group Name</label>
+                            <input class="form-control" @bind="_groupName" placeholder="finance_analysts" />
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Description</label>
+                            <input class="form-control" @bind="_groupDescription" placeholder="Finance ETL Analysts &amp; Approvers" />
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Group Members</label>
+                            @if (_apiUsers.Count > 0)
+                            {
+                                <div style="display:flex; gap:6px; flex-wrap:wrap; padding:8px; border:1px solid var(--border); border-radius:6px; max-height:135px; overflow-y:auto; margin-bottom:6px;">
+                                    @foreach (var u in _apiUsers)
+                                    {
+                                        var isMember = _selectedGroupMembers.Contains(u.Username);
+                                        <label style="display:inline-flex; align-items:center; gap:5px; font-size:0.78rem; padding:2px 7px; border:1px solid var(--border); border-radius:999px; cursor:pointer;">
+                                            <input type="checkbox" checked="@isMember"
+                                                   @onchange="e => ToggleSetItem(_selectedGroupMembers, u.Username, e.Value)" />
+                                            <span>👤 @u.Username</span>
+                                        </label>
+                                    }
+                                </div>
+                            }
+                            <input class="form-control"
+                                   @bind="_groupCustomMembersCsv"
+                                   placeholder="Additional usernames or DOMAIN\user (CSV)" />
+                        </div>
+                        <div style="display:flex; justify-content:space-between; gap:8px;">
+                            <button type="button" class="btn" @onclick="ResetApiGroupForm">Clear</button>
+                            <button type="button" class="btn btn-primary" disabled="@(!CanManageUsers)" @onclick="SaveApiGroupAsync">
+                                💾 Save User Group
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="panel" style="border:1px solid var(--border); border-radius:8px;">
+                    <div class="panel-header">
+                        <span>API User Groups (@_apiGroups.Count)</span>
+                        <button type="button" class="btn btn-sm" @onclick="LoadAllSettingsDataAsync">🔄 Refresh</button>
+                    </div>
+                    <div class="panel-body" style="padding:0;">
+                        <table class="data-table" style="margin-top:0;">
+                            <thead>
+                                <tr>
+                                    <th style="width:180px;">Group Name</th>
+                                    <th style="width:210px;">Description</th>
+                                    <th>Members</th>
+                                    <th style="width:210px;">Quick Add Member</th>
+                                    <th style="width:190px;">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @if (_apiGroups.Count == 0)
+                                {
+                                    <tr>
+                                        <td colspan="5" style="text-align:center; padding:20px; color:var(--text-muted);">
+                                            No API user groups defined yet. Create one on the left to manage team-level pipeline access.
+                                        </td>
+                                    </tr>
+                                }
+                                else
+                                {
+                                    @foreach (var grp in _apiGroups)
+                                    {
+                                        <tr>
+                                            <td><strong>👥 @grp.Name</strong></td>
+                                            <td style="color:var(--text-muted);">@(string.IsNullOrWhiteSpace(grp.Description) ? "—" : grp.Description)</td>
+                                            <td>
+                                                @if (grp.Members.Count == 0)
+                                                {
+                                                    <span style="color:var(--text-muted); font-size:0.76rem;">No members</span>
+                                                }
+                                                else
+                                                {
+                                                    <div style="display:flex; gap:5px; flex-wrap:wrap;">
+                                                        @foreach (var member in grp.Members)
+                                                        {
+                                                            <span class="section-badge" style="display:inline-flex; align-items:center; gap:4px; font-size:0.72rem;">
+                                                                <span>👤 @member</span>
+                                                                @if (CanManageUsers)
+                                                                {
+                                                                    <button type="button"
+                                                                            style="background:none; border:none; color:var(--danger, #ef4444); cursor:pointer; padding:0 2px; font-weight:700;"
+                                                                            title="Remove @member from @grp.Name"
+                                                                            @onclick="() => RemoveGroupMemberAsync(grp.Name, member)">
+                                                                        ×
+                                                                    </button>
+                                                                }
+                                                            </span>
+                                                        }
+                                                    </div>
+                                                }
+                                            </td>
+                                            <td>
+                                                <div style="display:flex; gap:4px;">
+                                                    <input class="form-control" style="padding:3px 7px; font-size:0.76rem;"
+                                                           list="known-users-datalist"
+                                                           placeholder="username..."
+                                                           value="@GetQuickInput(_quickGroupMemberInputs, grp.Name)"
+                                                           @oninput="e => SetQuickInput(_quickGroupMemberInputs, grp.Name, e.Value?.ToString())" />
+                                                    <button type="button" class="btn btn-sm"
+                                                            disabled="@(!CanManageUsers)"
+                                                            @onclick="() => QuickAddGroupMemberAsync(grp.Name)">
+                                                        + Add
+                                                    </button>
+                                                </div>
+                                            </td>
+                                            <td>
+                                                <div style="display:flex; gap:5px; flex-wrap:wrap;">
+                                                    <button type="button" class="btn btn-sm"
+                                                            @onclick="() => PopulateApiGroupForm(grp)">
+                                                        ✎ Edit
+                                                    </button>
+                                                    <button type="button" class="btn btn-sm"
+                                                            disabled="@(!CanManageUsers)"
+                                                            @onclick='() => OpenNewAclForPrincipal("group", grp.Name)'
+                                                            title="Grant or deny pipeline permissions for this group">
+                                                        🛡 +ACL
+                                                    </button>
+                                                    <button type="button" class="btn btn-sm btn-danger"
+                                                            disabled="@(!CanManageUsers)"
+                                                            @onclick="() => DeleteApiGroupAsync(grp.Name)">
+                                                        ✕
+                                                    </button>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    }
+                                }
+                            </tbody>
+                        </table>
+                        <datalist id="known-users-datalist">
+                            @foreach (var u in _apiUsers)
+                            {
+                                <option value="@u.Username"></option>
+                            }
+                        </datalist>
+                    </div>
+                </div>
+            </div>
+        }
+        else if (_accessSubTab == "pipeline_groups")
+        {
+            <div style="display:grid; grid-template-columns:410px 1fr; gap:18px;">
+                <div class="panel" style="border:1px solid var(--border); border-radius:8px;">
+                    <div class="panel-header">
+                        <span>🗂 Upsert Pipeline Group (<code>/api/v1/pipeline-groups</code>)</span>
+                    </div>
+                    <div class="panel-body">
+                        <p style="font-size:0.77rem; color:var(--text-muted); margin-top:0; line-height:1.4;">
+                            Organize pipelines by explicit membership and/or automatic wildcard pattern (e.g. <code>fin_*</code>) so ACL rules apply to every matching pipeline automatically.
+                        </p>
+                        <div class="form-group">
+                            <label class="form-label">Pipeline Group Name</label>
+                            <input class="form-control" @bind="_pgName" placeholder="finance_etl" />
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Auto-Match Name Glob Pattern (optional)</label>
+                            <input class="form-control" @bind="_pgNamePattern" placeholder="e.g. fin_* or *_daily" />
+                            <span style="font-size:0.72rem; color:var(--text-muted);">Supports <code>*</code> and <code>?</code> wildcards (case-insensitive).</span>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Description</label>
+                            <input class="form-control" @bind="_pgDescription" placeholder="Finance ledger &amp; close pipelines" />
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Explicitly Assigned Pipelines</label>
+                            @if (Studio.Pipelines.Count > 0)
+                            {
+                                <div style="display:flex; gap:6px; flex-wrap:wrap; padding:8px; border:1px solid var(--border); border-radius:6px; max-height:135px; overflow-y:auto; margin-bottom:6px;">
+                                    @foreach (var pipe in Studio.Pipelines)
+                                    {
+                                        var isAssigned = _selectedGroupPipelines.Contains(pipe.Name);
+                                        <label style="display:inline-flex; align-items:center; gap:5px; font-size:0.78rem; padding:2px 7px; border:1px solid var(--border); border-radius:999px; cursor:pointer;">
+                                            <input type="checkbox" checked="@isAssigned"
+                                                   @onchange="e => ToggleSetItem(_selectedGroupPipelines, pipe.Name, e.Value)" />
+                                            <span>🔀 @pipe.Name</span>
+                                        </label>
+                                    }
+                                </div>
+                            }
+                            <input class="form-control"
+                                   @bind="_pgCustomPipelinesCsv"
+                                   placeholder="Additional pipeline names (CSV)" />
+                        </div>
+                        <div style="display:flex; justify-content:space-between; gap:8px;">
+                            <button type="button" class="btn" @onclick="ResetPipelineGroupForm">Clear</button>
+                            <button type="button" class="btn btn-primary" disabled="@(!CanManageUsers)" @onclick="SavePipelineGroupAsync">
+                                💾 Save Pipeline Group
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="panel" style="border:1px solid var(--border); border-radius:8px;">
+                    <div class="panel-header">
+                        <span>Pipeline Groups (@_pipelineGroups.Count)</span>
+                        <button type="button" class="btn btn-sm" @onclick="LoadAllSettingsDataAsync">🔄 Refresh</button>
+                    </div>
+                    <div class="panel-body" style="padding:0;">
+                        <table class="data-table" style="margin-top:0;">
+                            <thead>
+                                <tr>
+                                    <th style="width:170px;">Pipeline Group</th>
+                                    <th style="width:130px;">Glob Pattern</th>
+                                    <th style="width:190px;">Description</th>
+                                    <th>Explicit / Matched Pipelines</th>
+                                    <th style="width:210px;">Quick Assign</th>
+                                    <th style="width:190px;">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @if (_pipelineGroups.Count == 0)
+                                {
+                                    <tr>
+                                        <td colspan="6" style="text-align:center; padding:20px; color:var(--text-muted);">
+                                            No pipeline groups defined yet. Create one on the left to govern related pipelines as a unit.
+                                        </td>
+                                    </tr>
+                                }
+                                else
+                                {
+                                    @foreach (var pg in _pipelineGroups)
+                                    {
+                                        <tr>
+                                            <td><strong>🗂 @pg.Name</strong></td>
+                                            <td>
+                                                @if (string.IsNullOrWhiteSpace(pg.NamePattern))
+                                                {
+                                                    <span style="color:var(--text-muted);">—</span>
+                                                }
+                                                else
+                                                {
+                                                    <code>@pg.NamePattern</code>
+                                                }
+                                            </td>
+                                            <td style="color:var(--text-muted);">@(string.IsNullOrWhiteSpace(pg.Description) ? "—" : pg.Description)</td>
+                                            <td>
+                                                @if (pg.Pipelines.Count == 0)
+                                                {
+                                                    <span style="color:var(--text-muted); font-size:0.76rem;">None explicitly listed</span>
+                                                }
+                                                else
+                                                {
+                                                    <div style="display:flex; gap:5px; flex-wrap:wrap;">
+                                                        @foreach (var pipeName in pg.Pipelines)
+                                                        {
+                                                            <span class="section-badge" style="display:inline-flex; align-items:center; gap:4px; font-size:0.72rem;">
+                                                                <span>🔀 @pipeName</span>
+                                                                @if (CanManageUsers)
+                                                                {
+                                                                    <button type="button"
+                                                                            style="background:none; border:none; color:var(--danger, #ef4444); cursor:pointer; padding:0 2px; font-weight:700;"
+                                                                            title="Remove explicit membership of @pipeName from @pg.Name"
+                                                                            @onclick="() => RemovePipelineFromGroupAsync(pg.Name, pipeName)">
+                                                                        ×
+                                                                    </button>
+                                                                }
+                                                            </span>
+                                                        }
+                                                    </div>
+                                                }
+                                            </td>
+                                            <td>
+                                                <div style="display:flex; gap:4px;">
+                                                    <input class="form-control" style="padding:3px 7px; font-size:0.76rem;"
+                                                           list="known-pipelines-datalist"
+                                                           placeholder="pipeline..."
+                                                           value="@GetQuickInput(_quickPipelineInputs, pg.Name)"
+                                                           @oninput="e => SetQuickInput(_quickPipelineInputs, pg.Name, e.Value?.ToString())" />
+                                                    <button type="button" class="btn btn-sm"
+                                                            disabled="@(!CanManageUsers)"
+                                                            @onclick="() => QuickAddPipelineToGroupAsync(pg.Name)">
+                                                        + Assign
+                                                    </button>
+                                                </div>
+                                            </td>
+                                            <td>
+                                                <div style="display:flex; gap:5px; flex-wrap:wrap;">
+                                                    <button type="button" class="btn btn-sm"
+                                                            @onclick="() => PopulatePipelineGroupForm(pg)">
+                                                        ✎ Edit
+                                                    </button>
+                                                    <button type="button" class="btn btn-sm"
+                                                            disabled="@(!CanManageUsers)"
+                                                            @onclick='() => OpenNewAclForTarget("pipeline_group", pg.Name)'
+                                                            title="Create an ACL rule targeting this pipeline group">
+                                                        🛡 +ACL
+                                                    </button>
+                                                    <button type="button" class="btn btn-sm btn-danger"
+                                                            disabled="@(!CanManageUsers)"
+                                                            @onclick="() => DeletePipelineGroupAsync(pg.Name)">
+                                                        ✕
+                                                    </button>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    }
+                                }
+                            </tbody>
+                        </table>
+                        <datalist id="known-pipelines-datalist">
+                            @foreach (var p in Studio.Pipelines)
+                            {
+                                <option value="@p.Name"></option>
+                            }
+                        </datalist>
+                    </div>
+                </div>
+            </div>
+        }
+        else if (_accessSubTab == "acls")
+        {
+            var filteredAcls = GetFilteredAcls().ToList();
+            <div style="display:grid; grid-template-columns:420px 1fr; gap:18px;">
+                <div class="panel" style="border:1px solid var(--border); border-radius:8px;">
+                    <div class="panel-header">
+                        <span>🛡 @(_aclEditId > 0 ? $"Edit Pipeline ACL Rule (#{_aclEditId})" : "Create / Upsert Pipeline ACL Rule")</span>
+                    </div>
+                    <div class="panel-body">
+                        <div style="display:grid; grid-template-columns:135px 1fr; gap:8px;">
+                            <div class="form-group">
+                                <label class="form-label">Principal Type</label>
+                                <select class="form-control" @bind="_aclPrincipalType">
+                                    <option value="group">👥 Group</option>
+                                    <option value="user">👤 User</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">Principal Name</label>
+                                <input class="form-control"
+                                       list="acl-principals-datalist"
+                                       @bind="_aclPrincipalName"
+                                       placeholder="@(_aclPrincipalType == "group" ? "finance_analysts or DOMAIN\\Group" : "alice or DOMAIN\\alice")" />
+                                <datalist id="acl-principals-datalist">
+                                    @if (_aclPrincipalType == "group")
+                                    {
+                                        @foreach (var g in _apiGroups)
+                                        {
+                                            <option value="@g.Name"></option>
+                                        }
+                                    }
+                                    else
+                                    {
+                                        @foreach (var u in _apiUsers)
+                                        {
+                                            <option value="@u.Username"></option>
+                                        }
+                                    }
+                                </datalist>
+                            </div>
+                        </div>
+
+                        <div style="display:grid; grid-template-columns:155px 1fr; gap:8px;">
+                            <div class="form-group">
+                                <label class="form-label">Target Scope</label>
+                                <select class="form-control" value="@_aclTargetType" @onchange="OnAclTargetTypeChanged">
+                                    <option value="pipeline_group">🗂 Pipeline Group</option>
+                                    <option value="pipeline">🔀 Single Pipeline</option>
+                                    <option value="*">🌐 All Pipelines (*)</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">Target Name</label>
+                                <input class="form-control"
+                                       list="acl-targets-datalist"
+                                       disabled="@(_aclTargetType == "*")"
+                                       @bind="_aclTargetName"
+                                       placeholder="@GetAclTargetPlaceholder()" />
+                                <datalist id="acl-targets-datalist">
+                                    @if (_aclTargetType == "pipeline_group")
+                                    {
+                                        @foreach (var pg in _pipelineGroups)
+                                        {
+                                            <option value="@pg.Name"></option>
+                                        }
+                                    }
+                                    else if (_aclTargetType == "pipeline")
+                                    {
+                                        @foreach (var p in Studio.Pipelines)
+                                        {
+                                            <option value="@p.Name"></option>
+                                        }
+                                    }
+                                </datalist>
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <label class="form-label">Rule Effect</label>
+                            <select class="form-control" @bind="_aclEffect">
+                                <option value="allow">✔ ALLOW — Grant selected CRUD / Execution actions</option>
+                                <option value="deny">⛔ DENY — Explicitly block actions (overrides ALLOW &amp; global role)</option>
+                            </select>
+                        </div>
+
+                        <div class="form-group">
+                            <label class="form-label">Pipeline CRUD &amp; Execution Actions</label>
+                            <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:6px; padding:8px; border:1px solid var(--border); border-radius:6px;">
+                                @foreach (var actionName in AllAclActions)
+                                {
+                                    var isSelected = _selectedAclActions.Contains(actionName);
+                                    <label style="display:flex; align-items:center; gap:6px; font-size:0.8rem; cursor:pointer;">
+                                        <input type="checkbox" checked="@isSelected"
+                                               @onchange="e => ToggleAclAction(actionName, e.Value)" />
+                                        <span><code>@actionName</code></span>
+                                    </label>
+                                }
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <label class="form-label">Description / Audit Note</label>
+                            <input class="form-control" @bind="_aclDescription" placeholder="Allow finance analysts to read &amp; execute finance ETL" />
+                        </div>
+
+                        <div style="display:flex; justify-content:space-between; gap:8px;">
+                            <button type="button" class="btn" @onclick="ResetAclForm">Clear / New</button>
+                            <button type="button" class="btn btn-primary" disabled="@(!CanManageUsers)" @onclick="SavePipelineAclAsync">
+                                💾 @(_aclEditId > 0 ? $"Update Rule #{_aclEditId}" : "Save ACL Rule (/api/v1/acls)")
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="panel" style="border:1px solid var(--border); border-radius:8px;">
+                    <div class="panel-header" style="flex-wrap:wrap; gap:8px;">
+                        <div>
+                            <span>Granular Pipeline ACL Rules (@filteredAcls.Count of @_pipelineAcls.Count)</span>
+                        </div>
+                        <div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap;">
+                            <input class="form-control" style="width:210px;"
+                                   placeholder="🔍 Filter principal or target..."
+                                   @bind="_aclSearchQuery" @bind:event="oninput" />
+                            <select class="form-control" style="width:130px;" @bind="_aclEffectFilter">
+                                <option value="all">All Effects</option>
+                                <option value="allow">✔ ALLOW</option>
+                                <option value="deny">⛔ DENY</option>
+                            </select>
+                            <button type="button" class="btn btn-sm" @onclick="LoadAllSettingsDataAsync">🔄 Refresh</button>
+                        </div>
+                    </div>
+                    <div style="padding:8px 12px; border-bottom:1px solid var(--border); font-size:0.75rem; color:var(--text-muted); background:rgba(59,130,246,0.06);">
+                        <strong>Evaluation Precedence:</strong>
+                        <code>1. Admin (all)</code> →
+                        <code>2. Explicit DENY</code> →
+                        <code>3. Explicit ALLOW (User + Groups across Pipeline, Pipeline Group &amp; *)</code> →
+                        <code>4. Default DENY (Non-admin accounts without ACLs have no pipeline access)</code>
+                    </div>
+                    <div class="panel-body" style="padding:0;">
+                        <table class="data-table" style="margin-top:0;">
+                            <thead>
+                                <tr>
+                                    <th style="width:60px;">ID</th>
+                                    <th style="width:95px;">Effect</th>
+                                    <th style="width:190px;">Principal</th>
+                                    <th style="width:210px;">Target</th>
+                                    <th>Actions</th>
+                                    <th>Description</th>
+                                    <th style="width:135px;">Manage</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @if (filteredAcls.Count == 0)
+                                {
+                                    <tr>
+                                        <td colspan="7" style="text-align:center; padding:20px; color:var(--text-muted);">
+                                            No pipeline ACL rules matched your filter. Add an ALLOW or DENY rule on the left.
+                                        </td>
+                                    </tr>
+                                }
+                                else
+                                {
+                                    @foreach (var acl in filteredAcls)
+                                    {
+                                        var isDeny = string.Equals(acl.Effect, "deny", StringComparison.OrdinalIgnoreCase);
+                                        <tr>
+                                            <td><code>#@acl.Id</code></td>
+                                            <td>
+                                                <span class="badge @(isDeny ? "badge-error" : "badge-success")">
+                                                    @(isDeny ? "⛔ DENY" : "✔ ALLOW")
+                                                </span>
+                                            </td>
+                                            <td>
+                                                <span style="font-size:0.74rem; color:var(--text-muted);">
+                                                    @(string.Equals(acl.PrincipalType, "user", StringComparison.OrdinalIgnoreCase) ? "👤 user:" : "👥 group:")
+                                                </span>
+                                                <strong> @acl.PrincipalName</strong>
+                                            </td>
+                                            <td>
+                                                @if (acl.TargetType == "*")
+                                                {
+                                                    <span class="badge badge-running">🌐 * (All Pipelines)</span>
+                                                }
+                                                else
+                                                {
+                                                    <span style="font-size:0.74rem; color:var(--text-muted);">
+                                                        @(string.Equals(acl.TargetType, "pipeline", StringComparison.OrdinalIgnoreCase) ? "🔀 pipeline:" : "🗂 group:")
+                                                    </span>
+                                                    <strong> @acl.TargetName</strong>
+                                                }
+                                            </td>
+                                            <td>
+                                                <div style="display:flex; gap:4px; flex-wrap:wrap;">
+                                                    @foreach (var act in SplitCsv(acl.Permissions))
+                                                    {
+                                                        <span class="perm-badge" style="font-size:0.68rem;">@act.ToUpperInvariant()</span>
+                                                    }
+                                                </div>
+                                            </td>
+                                            <td style="color:var(--text-muted); font-size:0.78rem;">
+                                                @(string.IsNullOrWhiteSpace(acl.Description) ? "—" : acl.Description)
+                                            </td>
+                                            <td>
+                                                <div style="display:flex; gap:5px;">
+                                                    <button type="button" class="btn btn-sm"
+                                                            @onclick="() => PopulateAclForm(acl)">
+                                                        ✎ Edit
+                                                    </button>
+                                                    <button type="button" class="btn btn-sm btn-danger"
+                                                            disabled="@(!CanManageUsers)"
+                                                            @onclick="() => DeletePipelineAclAsync(acl.Id)">
+                                                        ✕
+                                                    </button>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    }
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        }
+        else if (_accessSubTab == "effective")
+        {
+            var effPipelines = GetFilteredEffectivePipelines().ToList();
+            <div class="panel" style="border:1px solid var(--border); border-radius:8px;">
+                <div class="panel-header" style="flex-wrap:wrap; gap:10px;">
+                    <div>
+                        <span>🔍 Effective Pipeline Permissions Inspector (<code>/api/v1/permissions/effective</code>)</span>
+                    </div>
+                    <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+                        @if (CanManageUsers)
+                        {
+                            <input class="form-control" style="width:195px;"
+                                   list="eff-users-datalist"
+                                   placeholder="Target user (blank = self)"
+                                   @bind="_effTargetUsername" />
+                            <input class="form-control" style="width:235px;"
+                                   placeholder="Simulate extra groups (CSV)..."
+                                   @bind="_effSimulatedGroupsCsv" />
+                            <button type="button" class="btn btn-sm btn-primary" disabled="@_isEvaluatingEffective" @onclick="EvaluateEffectivePermissionsAsync">
+                                @(_isEvaluatingEffective ? "⏳ Evaluating..." : "🔍 Evaluate Principal")
+                            </button>
+                            <button type="button" class="btn btn-sm" disabled="@_isEvaluatingEffective" @onclick="InspectMyEffectivePermissionsAsync">
+                                ↺ My Session
+                            </button>
+                            <datalist id="eff-users-datalist">
+                                @foreach (var u in _apiUsers)
+                                {
+                                    <option value="@u.Username"></option>
+                                }
+                            </datalist>
+                        }
+                        else
+                        {
+                            <button type="button" class="btn btn-sm btn-primary" disabled="@_isEvaluatingEffective" @onclick="InspectMyEffectivePermissionsAsync">
+                                @(_isEvaluatingEffective ? "⏳ Evaluating..." : "🔄 Refresh My Effective Permissions")
+                            </button>
+                        }
+                    </div>
+                </div>
+
+                <div class="panel-body">
+                    @if (!string.IsNullOrWhiteSpace(_effErrorMessage))
+                    {
+                        <div class="terminal-output" style="margin-bottom:12px; color:var(--danger, #f87171);">@_effErrorMessage</div>
+                    }
+
+                    @if (_isEvaluatingEffective && _effectivePerms is null)
+                    {
+                        <div style="text-align:center; padding:24px; color:var(--text-muted);">
+                            ⏳ Evaluating effective pipeline permissions...
+                        </div>
+                    }
+                    else if (_effectivePerms is null)
+                    {
+                        <div style="text-align:center; padding:24px; color:var(--text-muted);">
+                            Click <strong>Evaluate Principal</strong> or <strong>Refresh My Effective Permissions</strong> to compute per-pipeline CRUD &amp; Execution rights.
+                        </div>
+                    }
+                    else
+                    {
+                        var resolvedGroups = _effectivePerms.Groups ?? new List<string>();
+                        var creatableGroups = _effectivePerms.CreatableGroups ?? new List<string>();
+                        var allEvaluatedPipelines = _effectivePerms.Pipelines ?? new List<EffectivePipelinePermissionsDto>();
+                        <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(240px, 1fr)); gap:12px; margin-bottom:16px;">
+                            <div class="palette-item" style="padding:10px 12px;">
+                                <div style="font-size:0.74rem; color:var(--text-muted);">Evaluated Principal</div>
+                                <div style="margin-top:4px;">
+                                    <strong>@_effectivePerms.Username</strong>
+                                    <span class="badge @GetRoleBadgeClass(_effectivePerms.GlobalPermission)" style="margin-left:6px;">
+                                        @(string.IsNullOrWhiteSpace(_effectivePerms.GlobalPermission) ? "none" : _effectivePerms.GlobalPermission)
+                                    </span>
+                                </div>
+                                <div style="margin-top:4px; font-size:0.75rem; color:var(--text-muted);">
+                                    Mode: <strong>@(_effectivePerms.StrictAcl ? "🔒 Strict ACL (Scoped)" : "🌐 Global Role + ACL")</strong>
+                                </div>
+                            </div>
+
+                            <div class="palette-item" style="padding:10px 12px;">
+                                <div style="font-size:0.74rem; color:var(--text-muted);">Resolved User Groups (@resolvedGroups.Count)</div>
+                                <div style="display:flex; gap:4px; flex-wrap:wrap; margin-top:6px;">
+                                    @if (resolvedGroups.Count == 0)
+                                    {
+                                        <span style="color:var(--text-muted); font-size:0.78rem;">No group memberships</span>
+                                    }
+                                    else
+                                    {
+                                        @foreach (var g in resolvedGroups)
+                                        {
+                                            <span class="section-badge">👥 @g</span>
+                                        }
+                                    }
+                                </div>
+                            </div>
+
+                            <div class="palette-item" style="padding:10px 12px;">
+                                <div style="font-size:0.74rem; color:var(--text-muted);">Creation &amp; Ad-Hoc Capabilities</div>
+                                <div style="margin-top:5px; font-size:0.78rem;">
+                                    Create Ungrouped Pipeline:
+                                    <strong>@(_effectivePerms.CanCreateUngrouped ? "✔ Allowed" : "✘ Denied")</strong>
+                                </div>
+                                <div style="margin-top:3px; font-size:0.78rem;">
+                                    Execute Inline / Unsaved XML:
+                                    <strong>@(_effectivePerms.CanExecuteInlineXml ? "✔ Allowed" : "✘ Denied")</strong>
+                                </div>
+                                @if (creatableGroups.Count > 0)
+                                {
+                                    <div style="margin-top:4px; font-size:0.74rem; color:var(--text-muted);">
+                                        Creatable Groups: <code>@string.Join(", ", creatableGroups)</code>
+                                    </div>
+                                }
+                            </div>
+                        </div>
+
+                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; gap:8px; flex-wrap:wrap;">
+                            <strong>Per-Pipeline Effective CRUD &amp; Execution Matrix (@effPipelines.Count of @allEvaluatedPipelines.Count)</strong>
+                            <input class="form-control" style="width:240px;"
+                                   placeholder="🔍 Filter pipeline or group..."
+                                   @bind="_effPipelineFilter" @bind:event="oninput" />
+                        </div>
+
+                        <table class="data-table" style="margin-top:0;">
+                            <thead>
+                                <tr>
+                                    <th>Pipeline Name</th>
+                                    <th>Matched Pipeline Groups</th>
+                                    <th style="width:95px; text-align:center;">Create</th>
+                                    <th style="width:95px; text-align:center;">Read</th>
+                                    <th style="width:95px; text-align:center;">Update</th>
+                                    <th style="width:95px; text-align:center;">Delete</th>
+                                    <th style="width:95px; text-align:center;">Execute</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @if (effPipelines.Count == 0)
+                                {
+                                    <tr>
+                                        <td colspan="7" style="text-align:center; padding:18px; color:var(--text-muted);">
+                                            No accessible pipelines found for this principal (grant access via Pipeline ACL Rules).
+                                        </td>
+                                    </tr>
+                                }
+                                else
+                                {
+                                    @foreach (var row in effPipelines)
+                                    {
+                                        var rowGroups = row.Groups ?? new List<string>();
+                                        <tr>
+                                            <td><strong>🔀 @row.Pipeline</strong></td>
+                                            <td>
+                                                @if (rowGroups.Count == 0)
+                                                {
+                                                    <span style="color:var(--text-muted); font-size:0.75rem;">—</span>
+                                                }
+                                                else
+                                                {
+                                                    <div style="display:flex; gap:4px; flex-wrap:wrap;">
+                                                        @foreach (var g in rowGroups)
+                                                        {
+                                                            <span class="section-badge" style="font-size:0.7rem;">🗂 @g</span>
+                                                        }
+                                                    </div>
+                                                }
+                                            </td>
+                                            <td style="text-align:center;">@RenderBoolPermBadge(HasEffectiveAction(row, "create"))</td>
+                                            <td style="text-align:center;">@RenderBoolPermBadge(HasEffectiveAction(row, "read"))</td>
+                                            <td style="text-align:center;">@RenderBoolPermBadge(HasEffectiveAction(row, "update"))</td>
+                                            <td style="text-align:center;">@RenderBoolPermBadge(HasEffectiveAction(row, "delete"))</td>
+                                            <td style="text-align:center;">@RenderBoolPermBadge(HasEffectiveAction(row, "execute"))</td>
+                                        </tr>
+                                    }
+                                }
+                            </tbody>
+                        </table>
+                    }
+                </div>
+            </div>
+        }
     }
     else if (_section == "auth_provider")
     {
@@ -444,7 +1304,21 @@
                     <div style="font-weight:700; margin-bottom:6px;">Current Session Principal</div>
                     <div>User: <strong>@(Auth.CurrentUser?.Username ?? "Not signed in")</strong></div>
                     <div>Provider: <code>@Auth.ActiveProviderName</code></div>
-                    <div>Effective Permissions: <span class="perm-badge">@Auth.CurrentPermissions.ToSummaryBadge()</span></div>
+                    @if (!string.IsNullOrWhiteSpace(Auth.CurrentUser?.ApiPermission))
+                    {
+                        <div>Backend API Role: <span class="badge @GetRoleBadgeClass(Auth.CurrentUser.ApiPermission)">@Auth.CurrentUser.ApiPermission</span></div>
+                    }
+                    <div>Effective UI Permissions: <span class="perm-badge">@Auth.CurrentPermissions.ToSummaryBadge()</span></div>
+                    @if (Auth.CurrentUser?.Groups is { Count: > 0 } sessionGroups)
+                    {
+                        <div style="margin-top:6px; display:flex; gap:4px; align-items:center; flex-wrap:wrap;">
+                            <span>Resolved Groups:</span>
+                            @foreach (var sg in sessionGroups)
+                            {
+                                <span class="section-badge">👥 @sg</span>
+                            }
+                        </div>
+                    }
                 </div>
             </div>
         </div>
@@ -550,10 +1424,19 @@
 </div>
 
 @code {
+    private static readonly string[] AllAclActions = ["all", "create", "read", "update", "delete", "execute"];
+
     private string _section = "artifacts";
+    private string _accessSubTab = "users";
     private string _artifactSearchQuery = string.Empty;
     private string _artifactTypeFilter = "all";
+    private string _artifactPipelineGroupFilter = "all";
+
     private List<ApiUserRecord> _apiUsers = new();
+    private List<ApiGroupRecord> _apiGroups = new();
+    private List<PipelineGroupRecord> _pipelineGroups = new();
+    private List<PipelineAclRecord> _pipelineAcls = new();
+    private EffectivePermissionsResponseDto? _effectivePerms;
 
     private SavedDatabaseProfile _editProfile = new()
     {
@@ -564,18 +1447,106 @@
     };
     private string _pingResultMessage = string.Empty;
 
+    // API Users form state
     private string _apiUsername = string.Empty;
     private string _apiPassword = string.Empty;
-    private string _apiPermission = "write";
+    private string _apiPermission = "scoped";
     private string _apiDescription = string.Empty;
     private bool _apiIsActive = true;
+    private readonly HashSet<string> _selectedUserGroups = new(StringComparer.OrdinalIgnoreCase);
+    private string _apiUserCustomGroupsCsv = string.Empty;
 
+    // API User Groups form state
+    private string _groupName = string.Empty;
+    private string _groupDescription = string.Empty;
+    private readonly HashSet<string> _selectedGroupMembers = new(StringComparer.OrdinalIgnoreCase);
+    private string _groupCustomMembersCsv = string.Empty;
+    private readonly Dictionary<string, string> _quickGroupMemberInputs = new(StringComparer.OrdinalIgnoreCase);
+
+    // Pipeline Groups form state
+    private string _pgName = string.Empty;
+    private string _pgDescription = string.Empty;
+    private string _pgNamePattern = string.Empty;
+    private readonly HashSet<string> _selectedGroupPipelines = new(StringComparer.OrdinalIgnoreCase);
+    private string _pgCustomPipelinesCsv = string.Empty;
+    private readonly Dictionary<string, string> _quickPipelineInputs = new(StringComparer.OrdinalIgnoreCase);
+
+    // Pipeline ACLs form state
+    private int _aclEditId;
+    private string _aclPrincipalType = "group";
+    private string _aclPrincipalName = string.Empty;
+    private string _aclTargetType = "pipeline_group";
+    private string _aclTargetName = string.Empty;
+    private string _aclEffect = "allow";
+    private string _aclDescription = string.Empty;
+    private readonly HashSet<string> _selectedAclActions = new(["read", "execute"], StringComparer.OrdinalIgnoreCase);
+    private string _aclSearchQuery = string.Empty;
+    private string _aclEffectFilter = "all";
+
+    // Effective Permissions Inspector state
+    private string _effTargetUsername = string.Empty;
+    private string _effSimulatedGroupsCsv = string.Empty;
+    private string _effPipelineFilter = string.Empty;
+    private string _effErrorMessage = string.Empty;
+    private bool _isEvaluatingEffective;
+
+    // Crypto settings state
     private bool _showSecureKey;
     private string _keygenProfileName = "flow_signing_key";
     private string _keygenAlgorithm = "ed25519";
     private string _keygenCommonName = "Flow Studio Signer";
     private string _keygenEmail = "devops@flow.local";
     private bool _isGeneratingKey;
+
+    private bool CanManageUsers => Auth.CurrentPermissions.IsAdmin;
+    private bool CanDeleteArtifact => Auth.CurrentPermissions.CanDelete;
+    private bool CanUploadArtifact => Auth.CurrentPermissions.CanCreate || Auth.CurrentPermissions.CanUpdate;
+    private int TotalArtifactCount => Studio.Pipelines.Count + Studio.Configs.Count + Studio.OptionsList.Count;
+
+    private static string GetSignatureFormatLabel(string? sigFormat) =>
+        string.IsNullOrWhiteSpace(sigFormat) ? "OPENSSL" : sigFormat.ToUpperInvariant();
+
+    private static bool IsScopedPermission(string? perm)
+    {
+        if (string.IsNullOrWhiteSpace(perm)) return false;
+        var norm = perm.Trim();
+        return string.Equals(norm, "scoped", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(norm, "acl", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(norm, "acl-only", StringComparison.OrdinalIgnoreCase) ||
+               norm.EndsWith("-strict-acl", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string GetRoleBadgeClass(string? perm)
+    {
+        if (IsScopedPermission(perm)) return "badge-warn";
+        if (string.Equals(perm?.Trim(), "all", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(perm?.Trim(), "admin", StringComparison.OrdinalIgnoreCase))
+        {
+            return "badge-success";
+        }
+        return "badge-running";
+    }
+
+    private void OpenUploadModalFromArtifacts()
+    {
+        var targetType = _artifactTypeFilter == "all" ? "pipeline" : _artifactTypeFilter;
+        Studio.OpenUploadModal(targetType);
+    }
+
+    private void JumpToPipelineAcl(string pipelineName)
+    {
+        _section = "api_users";
+        OpenNewAclForTarget("pipeline", pipelineName);
+    }
+
+    private IEnumerable<string> GetKnownPipelineGroupNames()
+    {
+        return _pipelineGroups.Select(g => g.Name)
+            .Concat(Studio.Pipelines.SelectMany(p => p.Groups))
+            .Where(g => !string.IsNullOrWhiteSpace(g))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(g => g, StringComparer.OrdinalIgnoreCase);
+    }
 
     private async Task GenerateKeyProfileInSettingsAsync()
     {
@@ -596,13 +1567,17 @@
             }
             catch
             {
-                // Fallback below
+                // Fallback to local key pair generation when API is unreachable
             }
             gen ??= Crypto.GenerateKeyPairLocal(_keygenAlgorithm, _keygenCommonName);
 
+            var profileName = string.IsNullOrWhiteSpace(_keygenProfileName)
+                ? $"key_{DateTime.Now:HHmmss}"
+                : _keygenProfileName.Trim();
+
             var profile = new SavedCryptoKeyProfile
             {
-                Name = string.IsNullOrWhiteSpace(_keygenProfileName) ? $"key_{DateTime.Now:HHmmss}" : _keygenProfileName.Trim(),
+                Name = profileName,
                 Format = gen.Format,
                 Algorithm = gen.Algorithm,
                 PrivateKeyPem = gen.PrivateKeyPem,
@@ -639,11 +1614,6 @@
         await JS.InvokeVoidAsync("flowStudio.downloadXmlFile", filename, content);
     }
 
-    private bool CanManageUsers => Auth.CurrentPermissions.IsAdmin;
-    private bool CanDeleteArtifact => Auth.CurrentPermissions.CanDelete;
-    private bool CanUploadArtifact => Auth.CurrentPermissions.CanCreate || Auth.CurrentPermissions.CanUpdate;
-    private int TotalArtifactCount => Studio.Pipelines.Count + Studio.Configs.Count + Studio.OptionsList.Count;
-
     private IEnumerable<ArtifactRecord> GetFilteredArtifacts()
     {
         IEnumerable<ArtifactRecord> all = Studio.Pipelines
@@ -656,6 +1626,19 @@
             all = all.Where(a => string.Equals(a.Type, _artifactTypeFilter, StringComparison.OrdinalIgnoreCase));
         }
 
+        if (!string.IsNullOrWhiteSpace(_artifactPipelineGroupFilter) &&
+            !string.Equals(_artifactPipelineGroupFilter, "all", StringComparison.OrdinalIgnoreCase))
+        {
+            if (string.Equals(_artifactPipelineGroupFilter, "__ungrouped__", StringComparison.OrdinalIgnoreCase))
+            {
+                all = all.Where(a => string.Equals(a.Type, "pipeline", StringComparison.OrdinalIgnoreCase) && a.Groups.Count == 0);
+            }
+            else
+            {
+                all = all.Where(a => a.Groups.Any(g => string.Equals(g, _artifactPipelineGroupFilter, StringComparison.OrdinalIgnoreCase)));
+            }
+        }
+
         if (!string.IsNullOrWhiteSpace(_artifactSearchQuery))
         {
             var q = _artifactSearchQuery.Trim();
@@ -663,6 +1646,7 @@
                 (a.Name?.Contains(q, StringComparison.OrdinalIgnoreCase) ?? false) ||
                 (a.Description?.Contains(q, StringComparison.OrdinalIgnoreCase) ?? false) ||
                 (a.Type?.Contains(q, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                a.Groups.Any(g => g.Contains(q, StringComparison.OrdinalIgnoreCase)) ||
                 a.Id.ToString().Contains(q, StringComparison.OrdinalIgnoreCase) ||
                 (a.Content?.Contains(q, StringComparison.OrdinalIgnoreCase) ?? false));
         }
@@ -676,6 +1660,7 @@
     {
         _artifactSearchQuery = string.Empty;
         _artifactTypeFilter = "all";
+        _artifactPipelineGroupFilter = "all";
     }
 
     private static string GetArtifactTypeBadge(string? type) => (type ?? string.Empty).ToLowerInvariant() switch
@@ -719,33 +1704,739 @@
     private async Task LoadAllSettingsDataAsync()
     {
         await Studio.RefreshHealthAndArtifactsAsync();
+        await LoadAccessControlListsAsync();
+    }
+
+    private async Task LoadAccessControlListsAsync()
+    {
         try
         {
             _apiUsers = await ApiClient.GetApiUsersAsync();
         }
         catch
         {
-            // Ignore if API is offline or user is not admin
+            // Ignore when API is offline or current user is not admin
+        }
+
+        try
+        {
+            _apiGroups = await ApiClient.GetApiGroupsAsync();
+        }
+        catch
+        {
+            // Ignore when API is offline or current user is not admin
+        }
+
+        try
+        {
+            _pipelineGroups = await ApiClient.GetPipelineGroupsAsync();
+        }
+        catch
+        {
+            // Ignore when API is offline or current user is not admin
+        }
+
+        try
+        {
+            _pipelineAcls = await ApiClient.GetPipelineAclsAsync();
+        }
+        catch
+        {
+            // Ignore when API is offline or current user is not admin
+        }
+
+        try
+        {
+            _effectivePerms = await ApiClient.GetEffectivePermissionsAsync(
+                string.IsNullOrWhiteSpace(_effTargetUsername) ? null : _effTargetUsername,
+                string.IsNullOrWhiteSpace(_effSimulatedGroupsCsv) ? null : _effSimulatedGroupsCsv);
+            _effErrorMessage = string.Empty;
+        }
+        catch
+        {
+            // Ignore during background load when API is offline
         }
     }
+
+    // =========================================================================
+    // Shared Form & Chip Helpers
+    // =========================================================================
+
+    private static List<string> SplitCsv(string? csv)
+    {
+        if (string.IsNullOrWhiteSpace(csv)) return new List<string>();
+        return csv
+            .Split([',', ';'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Where(s => !string.IsNullOrWhiteSpace(s))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    private static List<string> MergeSetAndCsv(HashSet<string> selected, string? csv)
+    {
+        return selected
+            .Concat(SplitCsv(csv))
+            .Where(s => !string.IsNullOrWhiteSpace(s))
+            .Select(s => s.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(s => s, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    private static void ToggleSetItem(HashSet<string> set, string item, object? checkboxValue)
+    {
+        var enabled = checkboxValue is bool b && b;
+        if (enabled)
+        {
+            set.Add(item);
+        }
+        else
+        {
+            set.Remove(item);
+        }
+    }
+
+    private static string GetQuickInput(Dictionary<string, string> dict, string key) =>
+        dict.TryGetValue(key, out var val) ? val : string.Empty;
+
+    private static void SetQuickInput(Dictionary<string, string> dict, string key, string? val) =>
+        dict[key] = val ?? string.Empty;
+
+    // =========================================================================
+    // API Users Sub-Tab Actions
+    // =========================================================================
 
     private void PopulateApiUserForm(ApiUserRecord u)
     {
         _apiUsername = u.Username;
         _apiPassword = string.Empty;
-        _apiPermission = string.IsNullOrWhiteSpace(u.Permission) ? "write" : u.Permission;
+        _apiPermission = string.IsNullOrWhiteSpace(u.Permission) ? "scoped" : u.Permission;
         _apiDescription = u.Description;
         _apiIsActive = u.IsActive;
+
+        _selectedUserGroups.Clear();
+        var knownGroupSet = new HashSet<string>(_apiGroups.Select(g => g.Name), StringComparer.OrdinalIgnoreCase);
+        var unknownGroups = new List<string>();
+        foreach (var g in u.Groups ?? new List<string>())
+        {
+            if (knownGroupSet.Count == 0 || knownGroupSet.Contains(g))
+            {
+                _selectedUserGroups.Add(g);
+            }
+            else
+            {
+                unknownGroups.Add(g);
+            }
+        }
+        _apiUserCustomGroupsCsv = string.Join(", ", unknownGroups);
     }
 
     private void ResetApiUserForm()
     {
         _apiUsername = string.Empty;
         _apiPassword = string.Empty;
-        _apiPermission = "write";
+        _apiPermission = "scoped";
         _apiDescription = string.Empty;
         _apiIsActive = true;
+        _selectedUserGroups.Clear();
+        _apiUserCustomGroupsCsv = string.Empty;
     }
+
+    private async Task SaveApiUserAsync()
+    {
+        if (!CanManageUsers)
+        {
+            Studio.ShowBanner("Admin permission required to manage go-flowAPI users.", "error");
+            return;
+        }
+
+        try
+        {
+            var mergedGroups = MergeSetAndCsv(_selectedUserGroups, _apiUserCustomGroupsCsv);
+            await ApiClient.UpsertApiUserAsync(
+                _apiUsername,
+                _apiPassword,
+                _apiPermission,
+                _apiDescription,
+                isActive: _apiIsActive,
+                groups: mergedGroups.Count > 0 ? mergedGroups : null);
+            await Auth.RefreshCurrentUserPermissionsAsync();
+            await LoadAccessControlListsAsync();
+            Studio.ShowBanner($"Saved go-flowAPI user '{_apiUsername}'.", "success");
+            await Studio.LogEventAsync("API_USERS", "UPSERT_API_USER", "api_user", _apiUsername, "SUCCESS", 0, null);
+        }
+        catch (Exception ex)
+        {
+            Studio.ShowBanner($"Failed saving API user: {ex.Message}", "error");
+        }
+    }
+
+    private async Task DeleteApiUserAsync(string username)
+    {
+        if (!CanManageUsers)
+        {
+            Studio.ShowBanner("Admin permission required to delete go-flowAPI users.", "error");
+            return;
+        }
+
+        try
+        {
+            await ApiClient.DeleteApiUserAsync(username);
+            await LoadAccessControlListsAsync();
+            Studio.ShowBanner($"Deleted go-flowAPI user '{username}'.", "info");
+            await Studio.LogEventAsync("API_USERS", "DELETE_API_USER", "api_user", username, "SUCCESS", 0, null);
+        }
+        catch (Exception ex)
+        {
+            Studio.ShowBanner($"Failed deleting API user: {ex.Message}", "error");
+        }
+    }
+
+    // =========================================================================
+    // API User Groups Sub-Tab Actions (/api/v1/groups)
+    // =========================================================================
+
+    private void PopulateApiGroupForm(ApiGroupRecord grp)
+    {
+        _groupName = grp.Name;
+        _groupDescription = grp.Description;
+        _selectedGroupMembers.Clear();
+
+        var knownUsers = new HashSet<string>(_apiUsers.Select(u => u.Username), StringComparer.OrdinalIgnoreCase);
+        var customMembers = new List<string>();
+        foreach (var m in grp.Members)
+        {
+            if (knownUsers.Contains(m))
+            {
+                _selectedGroupMembers.Add(m);
+            }
+            else
+            {
+                customMembers.Add(m);
+            }
+        }
+        _groupCustomMembersCsv = string.Join(", ", customMembers);
+    }
+
+    private void ResetApiGroupForm()
+    {
+        _groupName = string.Empty;
+        _groupDescription = string.Empty;
+        _selectedGroupMembers.Clear();
+        _groupCustomMembersCsv = string.Empty;
+    }
+
+    private async Task SaveApiGroupAsync()
+    {
+        if (!CanManageUsers)
+        {
+            Studio.ShowBanner("Admin permission required to manage API user groups.", "error");
+            return;
+        }
+        if (string.IsNullOrWhiteSpace(_groupName))
+        {
+            Studio.ShowBanner("User group name is required.", "error");
+            return;
+        }
+
+        try
+        {
+            var members = MergeSetAndCsv(_selectedGroupMembers, _groupCustomMembersCsv);
+            await ApiClient.UpsertApiGroupAsync(_groupName, _groupDescription, members);
+            await Auth.RefreshCurrentUserPermissionsAsync();
+            await LoadAccessControlListsAsync();
+            Studio.ShowBanner($"Saved API user group '{_groupName.Trim()}'.", "success");
+            await Studio.LogEventAsync("API_GROUPS", "UPSERT_API_GROUP", "api_group", _groupName.Trim(), "SUCCESS", 0, null);
+        }
+        catch (Exception ex)
+        {
+            Studio.ShowBanner($"Failed saving user group: {ex.Message}", "error");
+        }
+    }
+
+    private async Task DeleteApiGroupAsync(string groupName)
+    {
+        if (!CanManageUsers)
+        {
+            Studio.ShowBanner("Admin permission required to delete API user groups.", "error");
+            return;
+        }
+
+        try
+        {
+            await ApiClient.DeleteApiGroupAsync(groupName);
+            await Auth.RefreshCurrentUserPermissionsAsync();
+            await LoadAccessControlListsAsync();
+            Studio.ShowBanner($"Deleted API user group '{groupName}'.", "info");
+            await Studio.LogEventAsync("API_GROUPS", "DELETE_API_GROUP", "api_group", groupName, "SUCCESS", 0, null);
+        }
+        catch (Exception ex)
+        {
+            Studio.ShowBanner($"Failed deleting user group: {ex.Message}", "error");
+        }
+    }
+
+    private async Task QuickAddGroupMemberAsync(string groupName)
+    {
+        if (!CanManageUsers) return;
+        var raw = GetQuickInput(_quickGroupMemberInputs, groupName);
+        var usernames = SplitCsv(raw);
+        if (usernames.Count == 0) return;
+
+        try
+        {
+            await ApiClient.AddApiGroupMembersAsync(groupName, usernames);
+            _quickGroupMemberInputs[groupName] = string.Empty;
+            await Auth.RefreshCurrentUserPermissionsAsync();
+            await LoadAccessControlListsAsync();
+            Studio.ShowBanner($"Added {string.Join(", ", usernames)} to group '{groupName}'.", "success");
+        }
+        catch (Exception ex)
+        {
+            Studio.ShowBanner($"Failed adding group member: {ex.Message}", "error");
+        }
+    }
+
+    private async Task RemoveGroupMemberAsync(string groupName, string username)
+    {
+        if (!CanManageUsers) return;
+        try
+        {
+            await ApiClient.RemoveApiGroupMemberAsync(groupName, username);
+            await Auth.RefreshCurrentUserPermissionsAsync();
+            await LoadAccessControlListsAsync();
+            Studio.ShowBanner($"Removed '{username}' from group '{groupName}'.", "info");
+        }
+        catch (Exception ex)
+        {
+            Studio.ShowBanner($"Failed removing group member: {ex.Message}", "error");
+        }
+    }
+
+    // =========================================================================
+    // Pipeline Groups Sub-Tab Actions (/api/v1/pipeline-groups)
+    // =========================================================================
+
+    private void PopulatePipelineGroupForm(PipelineGroupRecord pg)
+    {
+        _pgName = pg.Name;
+        _pgDescription = pg.Description;
+        _pgNamePattern = pg.NamePattern;
+        _selectedGroupPipelines.Clear();
+
+        var knownPipes = new HashSet<string>(Studio.Pipelines.Select(p => p.Name), StringComparer.OrdinalIgnoreCase);
+        var customPipes = new List<string>();
+        foreach (var p in pg.Pipelines)
+        {
+            if (knownPipes.Contains(p))
+            {
+                _selectedGroupPipelines.Add(p);
+            }
+            else
+            {
+                customPipes.Add(p);
+            }
+        }
+        _pgCustomPipelinesCsv = string.Join(", ", customPipes);
+    }
+
+    private void ResetPipelineGroupForm()
+    {
+        _pgName = string.Empty;
+        _pgDescription = string.Empty;
+        _pgNamePattern = string.Empty;
+        _selectedGroupPipelines.Clear();
+        _pgCustomPipelinesCsv = string.Empty;
+    }
+
+    private async Task SavePipelineGroupAsync()
+    {
+        if (!CanManageUsers)
+        {
+            Studio.ShowBanner("Admin permission required to manage pipeline groups.", "error");
+            return;
+        }
+        if (string.IsNullOrWhiteSpace(_pgName))
+        {
+            Studio.ShowBanner("Pipeline group name is required.", "error");
+            return;
+        }
+
+        try
+        {
+            var pipelines = MergeSetAndCsv(_selectedGroupPipelines, _pgCustomPipelinesCsv);
+            await ApiClient.UpsertPipelineGroupAsync(_pgName, _pgDescription, _pgNamePattern, pipelines);
+            await Studio.RefreshHealthAndArtifactsAsync();
+            await LoadAccessControlListsAsync();
+            Studio.ShowBanner($"Saved pipeline group '{_pgName.Trim()}'.", "success");
+            await Studio.LogEventAsync("PIPELINE_GROUPS", "UPSERT_PIPELINE_GROUP", "pipeline_group", _pgName.Trim(), "SUCCESS", 0, null);
+        }
+        catch (Exception ex)
+        {
+            Studio.ShowBanner($"Failed saving pipeline group: {ex.Message}", "error");
+        }
+    }
+
+    private async Task DeletePipelineGroupAsync(string groupName)
+    {
+        if (!CanManageUsers)
+        {
+            Studio.ShowBanner("Admin permission required to delete pipeline groups.", "error");
+            return;
+        }
+
+        try
+        {
+            await ApiClient.DeletePipelineGroupAsync(groupName);
+            await Studio.RefreshHealthAndArtifactsAsync();
+            await LoadAccessControlListsAsync();
+            Studio.ShowBanner($"Deleted pipeline group '{groupName}'.", "info");
+            await Studio.LogEventAsync("PIPELINE_GROUPS", "DELETE_PIPELINE_GROUP", "pipeline_group", groupName, "SUCCESS", 0, null);
+        }
+        catch (Exception ex)
+        {
+            Studio.ShowBanner($"Failed deleting pipeline group: {ex.Message}", "error");
+        }
+    }
+
+    private async Task QuickAddPipelineToGroupAsync(string groupName)
+    {
+        if (!CanManageUsers) return;
+        var raw = GetQuickInput(_quickPipelineInputs, groupName);
+        var pipelines = SplitCsv(raw);
+        if (pipelines.Count == 0) return;
+
+        try
+        {
+            await ApiClient.AddPipelinesToGroupAsync(groupName, pipelines);
+            _quickPipelineInputs[groupName] = string.Empty;
+            await Studio.RefreshHealthAndArtifactsAsync();
+            await LoadAccessControlListsAsync();
+            Studio.ShowBanner($"Assigned {string.Join(", ", pipelines)} to pipeline group '{groupName}'.", "success");
+        }
+        catch (Exception ex)
+        {
+            Studio.ShowBanner($"Failed assigning pipeline to group: {ex.Message}", "error");
+        }
+    }
+
+    private async Task RemovePipelineFromGroupAsync(string groupName, string pipelineName)
+    {
+        if (!CanManageUsers) return;
+        try
+        {
+            await ApiClient.RemovePipelineFromGroupAsync(groupName, pipelineName);
+            await Studio.RefreshHealthAndArtifactsAsync();
+            await LoadAccessControlListsAsync();
+            Studio.ShowBanner($"Removed pipeline '{pipelineName}' from group '{groupName}'.", "info");
+        }
+        catch (Exception ex)
+        {
+            Studio.ShowBanner($"Failed removing pipeline from group: {ex.Message}", "error");
+        }
+    }
+
+    // =========================================================================
+    // Granular Pipeline ACL Rules Sub-Tab Actions (/api/v1/acls)
+    // =========================================================================
+
+    private string GetAclTargetPlaceholder()
+    {
+        if (_aclTargetType == "*") return "* (All Pipelines)";
+        return _aclTargetType == "pipeline" ? "e.g. fin_daily_ledger" : "e.g. finance_etl";
+    }
+
+    private void OnAclTargetTypeChanged(ChangeEventArgs e)
+    {
+        _aclTargetType = e.Value?.ToString() ?? "pipeline_group";
+        if (_aclTargetType == "*")
+        {
+            _aclTargetName = "*";
+        }
+        else if (_aclTargetName == "*")
+        {
+            _aclTargetName = string.Empty;
+        }
+    }
+
+    private void ToggleAclAction(string actionName, object? checkboxValue)
+    {
+        var enabled = checkboxValue is bool b && b;
+        if (string.Equals(actionName, "all", StringComparison.OrdinalIgnoreCase))
+        {
+            _selectedAclActions.Clear();
+            if (enabled)
+            {
+                _selectedAclActions.Add("all");
+            }
+            return;
+        }
+
+        _selectedAclActions.Remove("all");
+        if (enabled)
+        {
+            _selectedAclActions.Add(actionName);
+        }
+        else
+        {
+            _selectedAclActions.Remove(actionName);
+        }
+    }
+
+    private void OpenNewAclForPrincipal(string principalType, string principalName)
+    {
+        ResetAclForm();
+        _aclPrincipalType = principalType;
+        _aclPrincipalName = principalName;
+        _accessSubTab = "acls";
+    }
+
+    private void OpenNewAclForTarget(string targetType, string targetName)
+    {
+        ResetAclForm();
+        _aclTargetType = targetType;
+        _aclTargetName = targetName;
+        _accessSubTab = "acls";
+    }
+
+    private void PopulateAclForm(PipelineAclRecord acl)
+    {
+        _aclEditId = acl.Id;
+        _aclPrincipalType = string.IsNullOrWhiteSpace(acl.PrincipalType) ? "group" : acl.PrincipalType;
+        _aclPrincipalName = acl.PrincipalName;
+        _aclTargetType = string.IsNullOrWhiteSpace(acl.TargetType) ? "pipeline_group" : acl.TargetType;
+        _aclTargetName = _aclTargetType == "*" ? "*" : acl.TargetName;
+        _aclEffect = string.IsNullOrWhiteSpace(acl.Effect) ? "allow" : acl.Effect;
+        _aclDescription = acl.Description;
+
+        _selectedAclActions.Clear();
+        foreach (var token in SplitCsv(acl.Permissions))
+        {
+            var norm = token.ToLowerInvariant() switch
+            {
+                "*" or "admin" => "all",
+                "exec" or "run" => "execute",
+                "write" or "edit" => "update",
+                _ => token.ToLowerInvariant()
+            };
+            _selectedAclActions.Add(norm);
+        }
+    }
+
+    private void ResetAclForm()
+    {
+        _aclEditId = 0;
+        _aclPrincipalType = "group";
+        _aclPrincipalName = string.Empty;
+        _aclTargetType = "pipeline_group";
+        _aclTargetName = string.Empty;
+        _aclEffect = "allow";
+        _aclDescription = string.Empty;
+        _selectedAclActions.Clear();
+        _selectedAclActions.Add("read");
+        _selectedAclActions.Add("execute");
+    }
+
+    private IEnumerable<PipelineAclRecord> GetFilteredAcls()
+    {
+        IEnumerable<PipelineAclRecord> query = _pipelineAcls;
+        if (!string.IsNullOrWhiteSpace(_aclEffectFilter) &&
+            !string.Equals(_aclEffectFilter, "all", StringComparison.OrdinalIgnoreCase))
+        {
+            query = query.Where(a => string.Equals(a.Effect, _aclEffectFilter, StringComparison.OrdinalIgnoreCase));
+        }
+
+        if (!string.IsNullOrWhiteSpace(_aclSearchQuery))
+        {
+            var q = _aclSearchQuery.Trim();
+            query = query.Where(a =>
+                (a.PrincipalName?.Contains(q, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                (a.TargetName?.Contains(q, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                (a.Permissions?.Contains(q, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                (a.Description?.Contains(q, StringComparison.OrdinalIgnoreCase) ?? false));
+        }
+
+        return query
+            .OrderByDescending(a => string.Equals(a.Effect, "deny", StringComparison.OrdinalIgnoreCase))
+            .ThenBy(a => a.PrincipalType, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(a => a.PrincipalName, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(a => a.TargetName, StringComparer.OrdinalIgnoreCase);
+    }
+
+    private async Task SavePipelineAclAsync()
+    {
+        if (!CanManageUsers)
+        {
+            Studio.ShowBanner("Admin permission required to manage pipeline ACL rules.", "error");
+            return;
+        }
+        if (string.IsNullOrWhiteSpace(_aclPrincipalName))
+        {
+            Studio.ShowBanner("Principal name (user or group) is required.", "error");
+            return;
+        }
+        if (_aclTargetType != "*" && string.IsNullOrWhiteSpace(_aclTargetName))
+        {
+            Studio.ShowBanner("Target pipeline or pipeline group name is required.", "error");
+            return;
+        }
+        if (_selectedAclActions.Count == 0)
+        {
+            Studio.ShowBanner("Select at least one permission action (create, read, update, delete, execute, or all).", "error");
+            return;
+        }
+
+        var orderedPerms = AllAclActions.Where(a => _selectedAclActions.Contains(a));
+        var rule = new PipelineAclRecord
+        {
+            Id = _aclEditId,
+            PrincipalType = _aclPrincipalType,
+            PrincipalName = _aclPrincipalName.Trim(),
+            TargetType = _aclTargetType,
+            TargetName = _aclTargetType == "*" ? "*" : _aclTargetName.Trim(),
+            Permissions = string.Join(",", orderedPerms),
+            Effect = _aclEffect,
+            Description = _aclDescription
+        };
+
+        try
+        {
+            if (_aclEditId > 0)
+            {
+                await ApiClient.UpdatePipelineAclAsync(_aclEditId, rule);
+                Studio.ShowBanner($"Updated pipeline ACL rule #{_aclEditId}.", "success");
+            }
+            else
+            {
+                await ApiClient.UpsertPipelineAclAsync(rule);
+                Studio.ShowBanner($"Saved pipeline ACL rule for '{rule.PrincipalName}' on '{rule.TargetName}'.", "success");
+            }
+
+            ResetAclForm();
+            await Auth.RefreshCurrentUserPermissionsAsync();
+            await Studio.RefreshHealthAndArtifactsAsync();
+            await LoadAccessControlListsAsync();
+            await Studio.LogEventAsync("PIPELINE_ACLS", "SAVE_ACL", rule.TargetType, rule.TargetName, "SUCCESS", 0, null);
+        }
+        catch (Exception ex)
+        {
+            Studio.ShowBanner($"Failed saving pipeline ACL rule: {ex.Message}", "error");
+        }
+    }
+
+    private async Task DeletePipelineAclAsync(int id)
+    {
+        if (!CanManageUsers)
+        {
+            Studio.ShowBanner("Admin permission required to delete pipeline ACL rules.", "error");
+            return;
+        }
+
+        try
+        {
+            await ApiClient.DeletePipelineAclAsync(id);
+            if (_aclEditId == id)
+            {
+                ResetAclForm();
+            }
+            await Auth.RefreshCurrentUserPermissionsAsync();
+            await Studio.RefreshHealthAndArtifactsAsync();
+            await LoadAccessControlListsAsync();
+            Studio.ShowBanner($"Deleted pipeline ACL rule #{id}.", "info");
+            await Studio.LogEventAsync("PIPELINE_ACLS", "DELETE_ACL", "pipeline_acl", id.ToString(), "SUCCESS", 0, null);
+        }
+        catch (Exception ex)
+        {
+            Studio.ShowBanner($"Failed deleting pipeline ACL rule: {ex.Message}", "error");
+        }
+    }
+
+    // =========================================================================
+    // Effective Permissions Inspector Actions (/api/v1/permissions/effective)
+    // =========================================================================
+
+    private async Task SwitchToEffectiveSubTabAsync()
+    {
+        _accessSubTab = "effective";
+        if (_effectivePerms is null)
+        {
+            await EvaluateEffectivePermissionsAsync();
+        }
+    }
+
+    private async Task InspectUserEffectivePermissionsAsync(string username)
+    {
+        _effTargetUsername = username;
+        _effSimulatedGroupsCsv = string.Empty;
+        _accessSubTab = "effective";
+        await EvaluateEffectivePermissionsAsync();
+    }
+
+    private async Task InspectMyEffectivePermissionsAsync()
+    {
+        _effTargetUsername = string.Empty;
+        _effSimulatedGroupsCsv = string.Empty;
+        await EvaluateEffectivePermissionsAsync();
+    }
+
+    private async Task EvaluateEffectivePermissionsAsync()
+    {
+        if (_isEvaluatingEffective) return;
+        _isEvaluatingEffective = true;
+        _effErrorMessage = string.Empty;
+        try
+        {
+            var targetUser = CanManageUsers && !string.IsNullOrWhiteSpace(_effTargetUsername)
+                ? _effTargetUsername.Trim()
+                : null;
+            var simGroups = CanManageUsers && !string.IsNullOrWhiteSpace(_effSimulatedGroupsCsv)
+                ? _effSimulatedGroupsCsv.Trim()
+                : null;
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+            _effectivePerms = await ApiClient.GetEffectivePermissionsAsync(targetUser, simGroups, cts.Token);
+        }
+        catch (Exception ex)
+        {
+            _effErrorMessage = ex.Message;
+        }
+        finally
+        {
+            _isEvaluatingEffective = false;
+        }
+    }
+
+    private IEnumerable<EffectivePipelinePermissionsDto> GetFilteredEffectivePipelines()
+    {
+        if (_effectivePerms?.Pipelines is null) return Enumerable.Empty<EffectivePipelinePermissionsDto>();
+        IEnumerable<EffectivePipelinePermissionsDto> rows = _effectivePerms.Pipelines.Where(r => r is not null);
+        if (!string.IsNullOrWhiteSpace(_effPipelineFilter))
+        {
+            var q = _effPipelineFilter.Trim();
+            rows = rows.Where(r =>
+                (r.Pipeline?.Contains(q, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                (r.Groups?.Any(g => g?.Contains(q, StringComparison.OrdinalIgnoreCase) ?? false) ?? false));
+        }
+        return rows.OrderBy(r => r.Pipeline ?? string.Empty, StringComparer.OrdinalIgnoreCase);
+    }
+
+    private static bool HasEffectiveAction(EffectivePipelinePermissionsDto? row, string action) =>
+        row?.Actions is not null && row.Actions.TryGetValue(action, out var allowed) && allowed;
+
+    private RenderFragment RenderBoolPermBadge(bool allowed) => __builder =>
+    {
+        if (allowed)
+        {
+            <span class="badge badge-success" style="min-width:34px; text-align:center;">✔</span>
+        }
+        else
+        {
+            <span style="color:var(--text-muted); font-size:0.8rem;">—</span>
+        }
+    };
+
+    // =========================================================================
+    // Auth Provider & Database Profiles Actions
+    // =========================================================================
 
     private async Task SwitchAuthProviderAsync(string providerName)
     {
@@ -865,49 +2556,6 @@
         catch (Exception ex)
         {
             Studio.ShowBanner($"Failed saving DB profile: {ex.Message}", "error");
-        }
-    }
-
-    private async Task SaveApiUserAsync()
-    {
-        if (!CanManageUsers)
-        {
-            Studio.ShowBanner("Admin permission required to manage go-flowAPI users.", "error");
-            return;
-        }
-
-        try
-        {
-            await ApiClient.UpsertApiUserAsync(_apiUsername, _apiPassword, _apiPermission, _apiDescription, isActive: _apiIsActive);
-            await Auth.RefreshCurrentUserPermissionsAsync();
-            _apiUsers = await ApiClient.GetApiUsersAsync();
-            Studio.ShowBanner($"Saved go-flowAPI user '{_apiUsername}'.", "success");
-            await Studio.LogEventAsync("API_USERS", "UPSERT_API_USER", "api_user", _apiUsername, "SUCCESS", 0, null);
-        }
-        catch (Exception ex)
-        {
-            Studio.ShowBanner($"Failed saving API user: {ex.Message}", "error");
-        }
-    }
-
-    private async Task DeleteApiUserAsync(string username)
-    {
-        if (!CanManageUsers)
-        {
-            Studio.ShowBanner("Admin permission required to delete go-flowAPI users.", "error");
-            return;
-        }
-
-        try
-        {
-            await ApiClient.DeleteApiUserAsync(username);
-            _apiUsers = await ApiClient.GetApiUsersAsync();
-            Studio.ShowBanner($"Deleted go-flowAPI user '{username}'.", "info");
-            await Studio.LogEventAsync("API_USERS", "DELETE_API_USER", "api_user", username, "SUCCESS", 0, null);
-        }
-        catch (Exception ex)
-        {
-            Studio.ShowBanner($"Failed deleting API user: {ex.Message}", "error");
         }
     }
 }

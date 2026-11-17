@@ -70,6 +70,13 @@
                         <label class="form-label">Description</label>
                         <input class="form-control" @bind="_description" @bind:event="oninput" placeholder="Description stored in database..." />
                     </div>
+                    @if (_artifactType == "pipeline")
+                    {
+                        <div class="form-group" style="margin-bottom:0; min-width:210px;">
+                            <label class="form-label">Pipeline Group(s) (optional)</label>
+                            <input class="form-control" @bind="_pipelineGroupsCsv" @bind:event="oninput" placeholder="e.g. finance_pipelines" />
+                        </div>
+                    }
                     <div style="padding-bottom:6px;">
                         <label style="display:flex; align-items:center; gap:6px; cursor:pointer; font-size:0.8rem;"
                                title="Encrypt artifact content at rest using AES-256-GCM (FLOWENC:v1:)">
@@ -129,6 +136,7 @@
     private string _artifactType = "pipeline";
     private string _name = string.Empty;
     private string _description = string.Empty;
+    private string _pipelineGroupsCsv = string.Empty;
     private string _xmlContent = string.Empty;
     private string _selectedFileName = string.Empty;
     private string _fileSizeDisplay = string.Empty;
@@ -166,6 +174,7 @@
             _artifactType = Studio.UploadModalDefaultType;
             _name = string.Empty;
             _description = string.Empty;
+            _pipelineGroupsCsv = string.Empty;
             _xmlContent = string.Empty;
             _selectedFileName = string.Empty;
             _fileSizeDisplay = string.Empty;
@@ -282,13 +291,18 @@
         _errorMessage = null;
         try
         {
+            var groups = string.IsNullOrWhiteSpace(_pipelineGroupsCsv)
+                ? null
+                : _pipelineGroupsCsv.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
             var saved = await Studio.UploadLocalArtifactToDbAsync(
                 _artifactType,
                 _name,
                 _description,
                 _xmlContent,
                 _encrypted,
-                loadIntoDesigner: true);
+                loadIntoDesigner: true,
+                groups: groups);
 
             if (saved is not null)
             {

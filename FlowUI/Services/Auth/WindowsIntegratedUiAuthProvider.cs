@@ -95,7 +95,22 @@ public partial class WindowsIntegratedUiAuthProvider : IUiAuthProvider
             authenticatedAs,
             tokenPerm,
             ProviderName,
-            $"{DisplayName} ({authenticatedAs}) — API permission: {tokenPerm}");
+            $"{DisplayName} ({authenticatedAs}) — API permission: {tokenPerm}",
+            isActive: true,
+            groups: groups);
+
+        if (!mappedUser.IsAdmin)
+        {
+            try
+            {
+                var eff = await _apiClient.GetEffectivePermissionsAsync(ct: ct);
+                FlowApiClient.ApplyEffectivePermissions(mappedUser, eff);
+            }
+            catch
+            {
+                // Older go-flowAPI instances or mocked tests may not implement /api/v1/permissions/effective
+            }
+        }
 
         return AuthResult.Success(mappedUser, ProviderName);
     }

@@ -232,7 +232,8 @@ public class ModelsTests
         var runRec = new PipelineRunRecord
         {
             DatabaseUserName = "dbo",
-            Sspid = "64"
+            Sspid = "64",
+            Hostname = "etl-host-01"
         };
         Assert.Equal("dbo", runRec.DbUserName);
         Assert.Equal("dbo", runRec.DatabaseUserName);
@@ -240,11 +241,14 @@ public class ModelsTests
         Assert.Equal("64", runRec.Spid);
         Assert.Equal("64", runRec.Sspid);
         Assert.Equal("64", runRec.EffectiveSpid);
+        Assert.Equal("etl-host-01", runRec.EffectiveHostname);
 
         runRec.DatabaseUserName = string.Empty;
         runRec.Sspid = string.Empty;
+        runRec.Hostname = "   ";
         Assert.Equal("dbo", runRec.DbUserName);
         Assert.Equal("64", runRec.Spid);
+        Assert.Equal("-", runRec.EffectiveHostname);
 
         var evtRec = new PipelineEventRecord
         {

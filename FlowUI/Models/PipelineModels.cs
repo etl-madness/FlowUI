@@ -93,6 +93,7 @@ public sealed class PipelineDraft
     public string ArtifactType { get; set; } = "pipeline"; // "pipeline", "config", or "options"
     public string Name { get; set; } = "default_pipeline";
     public string Description { get; set; } = "Visual pipeline designed in Flow Builder";
+    public List<string> Groups { get; set; } = new();
     public List<PipelineNode> VariableNodes { get; set; } = new();
     public List<PipelineNode> DatabaseNodes { get; set; } = new();
     public List<PipelineNode> PreflightNodes { get; set; } = new();
@@ -246,6 +247,15 @@ public sealed class ArtifactRecord
 
     [JsonPropertyName("signature_format")]
     public string SignatureFormat { get; set; } = string.Empty;
+
+    private List<string> _groups = new();
+
+    [JsonPropertyName("groups")]
+    public List<string> Groups
+    {
+        get => _groups;
+        set => _groups = value ?? new();
+    }
 
     [JsonPropertyName("created_at")]
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;

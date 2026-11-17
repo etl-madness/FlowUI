@@ -125,6 +125,7 @@ public sealed class UiAuthenticationService : AuthenticationStateProvider, IAuth
     public async Task RefreshCurrentUserPermissionsAsync(CancellationToken ct = default)
     {
         if (_currentUser is null) return;
+        bool changed = false;
         try
         {
             var apiUsers = await _apiClient.GetApiUsersAsync(ct);
@@ -137,13 +138,43 @@ public sealed class UiAuthenticationService : AuthenticationStateProvider, IAuth
                     matched.Permission,
                     _currentUser.AuthProvider,
                     matched.Description,
-                    matched.IsActive);
-                NotifyStateChanged();
+                    matched.IsActive,
+                    matched.Groups);
+                changed = true;
             }
         }
         catch
         {
             // Ignore if current user is not an API admin
+        }
+
+        try
+        {
+            var eff = await _apiClient.GetEffectivePermissionsAsync(ct: ct);
+            if (eff is not null && !string.IsNullOrWhiteSpace(eff.Username))
+            {
+                if (!string.IsNullOrWhiteSpace(eff.GlobalPermission) && !_currentUser.IsAdmin)
+                {
+                    _currentUser = FlowApiClient.MapApiPermissionToUser(
+                        _currentUser.Username,
+                        eff.GlobalPermission,
+                        _currentUser.AuthProvider,
+                        _currentUser.Description,
+                        _currentUser.IsActive,
+                        eff.Groups);
+                }
+                FlowApiClient.ApplyEffectivePermissions(_currentUser, eff);
+                changed = true;
+            }
+        }
+        catch
+        {
+            // Ignore if /api/v1/permissions/effective is unavailable
+        }
+
+        if (changed)
+        {
+            NotifyStateChanged();
         }
     }
 
