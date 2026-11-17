@@ -41,17 +41,20 @@
                                 <th>Run ID / File</th>
                                 <th>Status</th>
                                 <th>Hostname</th>
+                                <th>OS User</th>
                                 <th>DB User</th>
                                 <th>Log SPID</th>
                                 <th>Duration</th>
                                 <th>Started (UTC)</th>
+                                <th>Finished (UTC)</th>
+
                             </tr>
                         </thead>
                         <tbody>
                             @if (_runs.Count == 0)
                             {
                                 <tr>
-                                    <td colspan="7" style="text-align:center; padding:18px; color:var(--text-muted);">
+                                    <td colspan="9" style="text-align:center; padding:18px; color:var(--text-muted);">
                                         No pipeline runs found.
                                     </td>
                                 </tr>
@@ -69,10 +72,12 @@
                                         </td>
                                         <td><span class="badge @GetBadgeClass(r.Status)">@r.Status</span></td>
                                         <td style="font-size:0.76rem;">@r.EffectiveHostname</td>
+                                        <td style="font-size:0.76rem;">@(string.IsNullOrWhiteSpace(r.OsUserName) ? "-" : r.OsUserName)</td>
                                         <td style="font-size:0.76rem;">@(string.IsNullOrWhiteSpace(r.EffectiveDbUser) ? "-" : r.EffectiveDbUser)</td>
                                         <td><code style="font-size:0.75rem;">@r.EffectiveSpid</code></td>
                                         <td>@r.DurationMs ms</td>
                                         <td style="font-size:0.75rem;">@r.StartedAt.ToString("MM-dd HH:mm:ss")</td>
+                                        <td style="font-size:0.75rem;">@r.FinishedAt.ToString("MM-dd HH:mm:ss")</td>
                                     </tr>
                                 }
                             }

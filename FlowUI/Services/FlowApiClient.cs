@@ -478,8 +478,8 @@ public sealed class FlowApiClient
 
     public Task<ArtifactRecord> UpsertArtifactAsync(
         string artifactType, string name, string description, string xmlContent,
-        bool encrypted = false, string? secureKey = null, CancellationToken ct = default,
-        IEnumerable<string>? groups = null)
+        bool encrypted = false, string? secureKey = null, IEnumerable<string>? groups = null,
+        CancellationToken ct = default)
     {
         var url = $"/api/v1/artifacts/{Uri.EscapeDataString(artifactType)}?upsert=true"
                 + (string.IsNullOrWhiteSpace(secureKey) ? "" : $"&secure_key={Uri.EscapeDataString(secureKey)}");
@@ -493,8 +493,8 @@ public sealed class FlowApiClient
 
     public Task<ArtifactRecord> UpdateArtifactByIdAsync(
         string artifactType, int id, string description, string xmlContent,
-        bool encrypted = false, string? secureKey = null, CancellationToken ct = default,
-        IEnumerable<string>? groups = null)
+        bool encrypted = false, string? secureKey = null, IEnumerable<string>? groups = null,
+        CancellationToken ct = default)
     {
         var url = $"/api/v1/artifacts/{Uri.EscapeDataString(artifactType)}/id/{id}"
                 + (string.IsNullOrWhiteSpace(secureKey) ? "" : $"?secure_key={Uri.EscapeDataString(secureKey)}");
