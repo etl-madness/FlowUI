@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  macOS LaunchDaemon plist for ETL Madness FlowUI (Flow Builder Studio).
+  To enable system-wide at boot:
+    1. Edit /opt/flow-ui/etc/flow-ui.env and set chmod 0600 /opt/flow-ui/etc/flow-ui.env
+    2. sudo mkdir -p /var/db/flow-ui /var/log/flow-ui
+    3. sudo cp /opt/flow-ui/share/services/launchd/com.etlmadness.flow-ui.plist /Library/LaunchDaemons/
+    4. sudo chown root:wheel /Library/LaunchDaemons/com.etlmadness.flow-ui.plist
+    5. sudo chmod 0644 /Library/LaunchDaemons/com.etlmadness.flow-ui.plist
+    6. sudo launchctl bootstrap system /Library/LaunchDaemons/com.etlmadness.flow-ui.plist
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.etlmadness.flow-ui</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/opt/flow-ui/bin/flow-ui</string>
+        <string>--env-file</string>
+        <string>/opt/flow-ui/etc/flow-ui.env</string>
+    </array>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>HOME</key>
+        <string>/var/db/flow-ui</string>
+        <key>DOTNET_CLI_HOME</key>
+        <string>/var/db/flow-ui</string>
+    </dict>
+
+    <key>WorkingDirectory</key>
+    <string>/var/db/flow-ui</string>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>KeepAlive</key>
+    <dict>
+        <key>SuccessfulExit</key>
+        <false/>
+    </dict>
+
+    <key>ThrottleInterval</key>
+    <integer>5</integer>
+
+    <key>ExitTimeOut</key>
+    <integer>20</integer>
+
+    <key>StandardOutPath</key>
+    <string>/var/log/flow-ui/flow-ui.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/var/log/flow-ui/flow-ui.error.log</string>
+
+    <key>SoftResourceLimits</key>
+    <dict>
+        <key>NumberOfFiles</key>
+        <integer>65536</integer>
+    </dict>
+</dict>
+</plist>

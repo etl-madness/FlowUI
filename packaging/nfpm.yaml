@@ -1,0 +1,100 @@
+# Optional nFPM configuration for building .deb, .rpm, and Arch .pkg.tar.zst
+# packages under /opt/flow-ui without requiring native dpkg-deb, rpmbuild, or makepkg.
+name: "${PKG_NAME}"
+arch: "${NFPM_ARCH}"
+platform: "linux"
+version: "${FLOW_VERSION}"
+release: "${FLOW_RELEASE}"
+section: "web"
+priority: "optional"
+maintainer: "ETL Madness <maintainers@etl-madness.invalid>"
+description: |
+  ETL Madness FlowUI (Flow Builder Studio) — .NET 10 ASP.NET Core Blazor Server web application.
+  Installs isolated under /opt/flow-ui (self-contained .NET 10 runtime & app, launcher script,
+  man pages, GNU Info manual, and systemd/OpenRC/SysVinit service definitions)
+  with /etc/flow-ui/flow-ui.env and /etc/profile.d/flow-ui.sh.
+homepage: "https://github.com/etl-madness/flowUI"
+license: "MIT"
+
+scripts:
+  postinstall: "${REPO_ROOT}/packaging/debian/postinst"
+  preremove: "${REPO_ROOT}/packaging/debian/prerm"
+  postremove: "${REPO_ROOT}/packaging/debian/postrm"
+
+contents:
+  - src: "${STAGE_APP_DIR}/"
+    dst: "/opt/flow-ui/app"
+  - src: "${STAGE_BIN_DIR}/flow-ui"
+    dst: "/opt/flow-ui/bin/flow-ui"
+    file_info:
+      mode: 0755
+  - src: "${STAGE_DOC_DIR}/man1/flow-ui.1.gz"
+    dst: "/opt/flow-ui/share/man/man1/flow-ui.1.gz"
+    file_info:
+      mode: 0644
+  - src: "${STAGE_DOC_DIR}/man5/flow-ui.env.5.gz"
+    dst: "/opt/flow-ui/share/man/man5/flow-ui.env.5.gz"
+    file_info:
+      mode: 0644
+  - src: "${STAGE_DOC_DIR}/info/flow-ui.info.gz"
+    dst: "/opt/flow-ui/share/info/flow-ui.info.gz"
+    file_info:
+      mode: 0644
+  - src: "${STAGE_DOC_DIR}/info/dir"
+    dst: "/opt/flow-ui/share/info/dir"
+    file_info:
+      mode: 0644
+  - src: "${REPO_ROOT}/README.md"
+    dst: "/opt/flow-ui/share/doc/README.md"
+    file_info:
+      mode: 0644
+  - src: "${REPO_ROOT}/DOCKER.md"
+    dst: "/opt/flow-ui/share/doc/DOCKER.md"
+    file_info:
+      mode: 0644
+  - src: "${REPO_ROOT}/packaging/services/systemd/flow-ui.service"
+    dst: "/opt/flow-ui/share/services/systemd/flow-ui.service"
+    file_info:
+      mode: 0644
+  - src: "${REPO_ROOT}/packaging/services/openrc/flow-ui"
+    dst: "/opt/flow-ui/share/services/openrc/flow-ui"
+    file_info:
+      mode: 0755
+  - src: "${REPO_ROOT}/packaging/services/sysvinit/flow-ui"
+    dst: "/opt/flow-ui/share/services/sysvinit/flow-ui"
+    file_info:
+      mode: 0755
+  - src: "${REPO_ROOT}/packaging/services/systemd/flow-ui.service"
+    dst: "/usr/lib/systemd/system/flow-ui.service"
+    file_info:
+      mode: 0644
+  - src: "${REPO_ROOT}/packaging/etc/flow-ui/flow-ui.env"
+    dst: "/etc/flow-ui/flow-ui.env"
+    type: "config|noreplace"
+    file_info:
+      mode: 0640
+  - src: "${REPO_ROOT}/packaging/etc/profile.d/flow-ui.sh"
+    dst: "/etc/profile.d/flow-ui.sh"
+    type: "config|noreplace"
+    file_info:
+      mode: 0644
+  - src: "${REPO_ROOT}/LICENSE.txt"
+    dst: "/opt/flow-ui/share/licenses/LICENSE"
+    file_info:
+      mode: 0644
+  - src: "${REPO_ROOT}/LICENSE.txt"
+    dst: "/usr/share/doc/${PKG_NAME}/copyright"
+    file_info:
+      mode: 0644
+  - src: "${REPO_ROOT}/LICENSE.txt"
+    dst: "/usr/share/licenses/${PKG_NAME}/LICENSE"
+    file_info:
+      mode: 0644
+  - dst: "/var/lib/flow-ui"
+    type: "dir"
+    file_info:
+      mode: 0750
+  - dst: "/var/log/flow-ui"
+    type: "dir"
+    file_info:
+      mode: 0750

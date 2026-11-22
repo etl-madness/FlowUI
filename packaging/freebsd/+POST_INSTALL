@@ -1,0 +1,23 @@
+#!/bin/sh
+# FreeBSD post-install script for flow-ui.
+# Creates unprivileged flowui user/group, state/log directories, and seeds
+# /usr/local/etc/flow-ui/flow-ui.env without overwriting existing edits.
+
+if ! pw groupshow flowui >/dev/null 2>&1; then
+    pw groupadd -n flowui || true
+fi
+
+if ! pw usershow flowui >/dev/null 2>&1; then
+    pw useradd -n flowui -g flowui -d /var/db/flow-ui -s /usr/sbin/nologin -c "ETL Madness FlowUI daemon" || true
+fi
+
+install -d -o flowui -g flowui -m 0750 /var/db/flow-ui /var/log/flow-ui 2>/dev/null || true
+install -d -o root -g flowui -m 0750 /usr/local/etc/flow-ui 2>/dev/null || true
+
+if [ ! -f /usr/local/etc/flow-ui/flow-ui.env ] && [ -f /usr/local/etc/flow-ui/flow-ui.env.sample ]; then
+    cp /usr/local/etc/flow-ui/flow-ui.env.sample /usr/local/etc/flow-ui/flow-ui.env
+    chown root:flowui /usr/local/etc/flow-ui/flow-ui.env 2>/dev/null || true
+    chmod 0640 /usr/local/etc/flow-ui/flow-ui.env 2>/dev/null || true
+fi
+
+exit 0

@@ -1,0 +1,33 @@
+[Unit]
+Description=ETL Madness FlowUI — Flow Builder Studio (.NET 10 Blazor Server)
+Documentation=https://etl-madness.github.io/flow-docs/
+Documentation=man:flow-ui(1) man:flow-ui.env(5)
+After=network-online.target go-flow-api.service
+Wants=network-online.target
+
+[Service]
+Type=notify
+User=flowui
+Group=flowui
+WorkingDirectory=/var/lib/flow-ui
+StateDirectory=flow-ui
+StateDirectoryMode=0750
+Environment="HOME=/var/lib/flow-ui"
+Environment="DOTNET_CLI_HOME=/var/lib/flow-ui"
+EnvironmentFile=-/etc/flow-ui/flow-ui.env
+ExecStart=/opt/flow-ui/bin/flow-ui --env-file /etc/flow-ui/flow-ui.env
+KillSignal=SIGTERM
+TimeoutStopSec=20s
+Restart=on-failure
+RestartSec=5s
+LimitNOFILE=65536
+
+# Security hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=full
+ReadWritePaths=/var/lib/flow-ui
+
+[Install]
+WantedBy=multi-user.target

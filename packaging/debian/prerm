@@ -1,0 +1,14 @@
+#!/bin/sh
+set -e
+
+case "${1:-}" in
+    remove)
+        if [ -d /run/systemd/system ] && command -v systemctl >/dev/null 2>&1; then
+            systemctl --no-reload disable --now flow-ui.service >/dev/null 2>&1 || true
+        elif [ -x /etc/init.d/flow-ui ]; then
+            /etc/init.d/flow-ui stop >/dev/null 2>&1 || true
+        fi
+        ;;
+esac
+
+exit 0

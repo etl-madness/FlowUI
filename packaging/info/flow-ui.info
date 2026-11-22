@@ -1,0 +1,109 @@
+This is flow-ui.info, produced from flow-ui.texi.
+
+INFO-DIR-SECTION Network Applications and Daemons
+START-INFO-DIR-ENTRY
+* flow-ui: (flow-ui)Invoking flow-ui.              ETL Madness FlowUI web application.
+* flow-ui.env: (flow-ui)Configuration File.        Environment configuration for FlowUI services.
+END-INFO-DIR-ENTRY
+
+This manual is for ETL Madness FlowUI (Flow Builder Studio).
+
+Copyright (C) 2026 ETL Madness.  Licensed under the MIT License.
+
+File: flow-ui.info,  Node: Top,  Next: Overview and Architecture,  Prev: (dir),  Up: (dir)
+
+ETL Madness FlowUI
+******************
+
+This manual documents *FlowUI* (Flow Builder Studio), the interactive
+.NET 10 ASP.NET Core Blazor Server web application for visually
+designing, configuring, signing, encrypting, validating, executing, and
+monitoring XML ETL pipelines powered by 'go-flow' and 'go-flowAPI'.
+
+* Menu:
+
+* Overview and Architecture::   Stateless frontend design and package layout.
+* Invoking flow-ui::            Command-line options and launcher wrapper.
+* Configuration File::          Syntax and variables for 'flow-ui.env'.
+* OS Services and Daemons::     systemd, OpenRC, SysVinit, FreeBSD/OpenBSD rc.d, launchd, and Windows SCM.
+
+File: flow-ui.info,  Node: Overview and Architecture,  Next: Invoking flow-ui,  Prev: Top,  Up: Top
+
+1 Overview and Architecture
+***************************
+
+'FlowUI' is a stateless visual studio and orchestration frontend built
+on .NET 10 ASP.NET Core Blazor Server.  It does not connect directly to
+any application database; all artifact persistence, validation,
+execution, SSE streaming, user/group/pipeline-group/ACL administration,
+and telemetry flow over HTTP/HTTPS to 'go-flowAPI'.
+
+Packages install isolated under '/opt/flow-ui' on Unix platforms (Linux,
+macOS, FreeBSD, and OpenBSD) and 'C:\Program Files\ETL Madness\Flow UI\'
+on Windows, so FlowUI can be installed side-by-side with 'go-flow'
+('/opt/flow') and 'go-flowAPI' ('/opt/flow-api') with zero file
+collisions.
+
+File: flow-ui.info,  Node: Invoking flow-ui,  Next: Configuration File,  Prev: Overview and Architecture,  Up: Top
+
+2 Invoking 'flow-ui'
+********************
+
+Synopsis:
+
+     flow-ui [--env-file PATH] [--urls URLS] [--contentRoot PATH] [--service-name NAME]
+     flow-ui --version | --help
+
+On Unix systems, '/opt/flow-ui/bin/flow-ui' launches the published .NET
+10 application in '/opt/flow-ui/app/' with '--contentRoot
+/opt/flow-ui/app' so static assets and embedded documentation resolve
+regardless of the caller's working directory.
+
+File: flow-ui.info,  Node: Configuration File,  Next: OS Services and Daemons,  Prev: Invoking flow-ui,  Up: Top
+
+3 Configuration File ('flow-ui.env')
+************************************
+
+'flow-ui.env' uses 'KEY=VALUE' syntax.  Existing non-empty process
+environment variables take precedence over values in the file.
+
+   * 'ASPNETCORE_ENVIRONMENT': Recommended value 'Production'.
+   * 'ASPNETCORE_URLS': Explicit Kestrel listen URLs (e.g.,
+     'http://0.0.0.0:5185').
+   * 'FLOW_API_URL': Base URL of 'go-flowAPI' (e.g.,
+     'http://localhost:8080').
+   * 'FLOW_UI_AUTH_MODE': 'ApiBasic' (default) or 'Windows'.
+   * 'FLOW_API_BASIC_AUTH': Optional Base64 service token for 'Windows'
+     mode.
+
+File: flow-ui.info,  Node: OS Services and Daemons,  Prev: Configuration File,  Up: Top
+
+4 OS Services and Daemons
+*************************
+
+   * *Linux systemd*: '/usr/lib/systemd/system/flow-ui.service' (user
+     'flowui', state '/var/lib/flow-ui').
+   * *Linux OpenRC / SysVinit*: Templates in
+     '/opt/flow-ui/share/services/'.
+   * *FreeBSD rc.d*: '/usr/local/etc/rc.d/flow_ui' (enable via 'sysrc
+     flow_ui_enable="YES"'; requires FreeBSD 'dotnet' package).
+   * *OpenBSD rc.d*: '/etc/rc.d/flow_ui' (enable via 'rcctl enable
+     flow_ui'; requires a custom/ported .NET 10 runtime on OpenBSD).
+   * *macOS launchd*:
+     '/opt/flow-ui/share/services/launchd/com.etlmadness.flow-ui.plist'.
+   * *Windows SCM*: Native Windows Service support in 'FlowUI.exe' with
+     'Install-FlowUIService.ps1' and 'Uninstall-FlowUIService.ps1'.
+
+Tag Table:
+Node: Top456
+Node: Overview and Architecture1205
+Node: Invoking flow-ui1986
+Node: Configuration File2525
+Node: OS Services and Daemons3227
+
+End Tag Table
+
+
+Local Variables:
+coding: utf-8
+End:

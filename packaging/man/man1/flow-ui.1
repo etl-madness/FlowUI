@@ -1,0 +1,114 @@
+.TH FLOW-UI 1 "November 2026" "ETL Madness FlowUI 1.3.1" "User Commands"
+.SH NAME
+flow-ui \- ETL Madness FlowUI (Flow Builder Studio) Blazor Server web application
+.SH SYNOPSIS
+.B flow-ui
+[\fB\-\-env-file\fR \fIPATH\fR]
+[\fB\-\-urls\fR \fIURLS\fR]
+[\fB\-\-contentRoot\fR \fIPATH\fR]
+[\fB\-\-service-name\fR \fINAME\fR]
+.br
+.B flow-ui
+\fB\-\-version\fR | \fB\-\-help\fR
+.SH DESCRIPTION
+.B FlowUI
+(Flow Builder Studio) is an interactive .NET 10 ASP.NET Core Blazor Server web
+application for visually designing, configuring, signing, encrypting,
+validating, executing, and monitoring XML ETL pipelines powered by
+.B go-flow
+and
+.BR go-flowAPI .
+.PP
+FlowUI is a stateless frontend that communicates exclusively with
+.B go-flowAPI
+over HTTP/HTTPS (REST JSON and Server-Sent Events). It does not connect
+directly to application databases.
+.PP
+Unix packages install isolated under
+.I /opt/flow-ui
+alongside
+.BR systemd ,
+OpenRC, SysVinit, FreeBSD
+.BR rc.d ,
+OpenBSD
+.BR rc.d ,
+and macOS
+.B launchd
+service definitions. Windows packages install under
+.I C:\eProgram Files\eETL Madness\eFlow UI\e
+with native Windows Service Control Manager (SCM) support.
+.SH OPTIONS
+.TP
+.BI \-\-env-file " PATH"
+Load \fIKEY=VALUE\fR environment settings from \fIPATH\fR before initializing
+ASP.NET Core and \fBAppConfig\fR. Existing non-empty process environment
+variables take precedence over values in the file. Also configurable via
+\fBFLOW_UI_ENV_FILE\fR.
+.TP
+.BI \-\-urls " URLS"
+Semicolon-separated Kestrel listen URLs (e.g., \fIhttp://0.0.0.0:5185\fR).
+Overrides \fBFLOW_UI_PORT\fR and \fBFLOW_UI_SCHEME\fR.
+.TP
+.BI \-\-contentRoot " PATH"
+Override the ASP.NET Core content root directory (defaults to
+\fI/opt/flow-ui/app\fR when invoked via \fI/opt/flow-ui/bin/flow-ui\fR).
+.TP
+.BI \-\-service-name " NAME"
+Windows Service name used when running under Windows SCM (default:
+\fBFlowUI\fR).
+.TP
+.BR \-v ", " \-\-version
+Print version information and exit.
+.TP
+.BR \-h ", " \-\-help
+Display usage information and exit.
+.SH ENVIRONMENT
+See
+.BR flow-ui.env (5)
+for the complete list of supported environment variables, including
+\fBFLOW_API_URL\fR, \fBASPNETCORE_URLS\fR, \fBFLOW_UI_AUTH_MODE\fR, and
+Kestrel TLS certificate settings.
+.SH FILES
+.TP
+.I /opt/flow-ui/bin/flow-ui
+Launcher wrapper invoking the FlowUI application with \fB\-\-contentRoot /opt/flow-ui/app\fR.
+.TP
+.I /opt/flow-ui/app/
+Published .NET 10 Blazor Server application, \fIwwwroot/\fR static assets, and embedded guides.
+.TP
+.I /etc/flow-ui/flow-ui.env
+Default daemon environment configuration file on Linux and OpenBSD (\fI/usr/local/etc/flow-ui/flow-ui.env\fR on FreeBSD, \fI/opt/flow-ui/etc/flow-ui.env\fR on macOS).
+.TP
+.I /usr/lib/systemd/system/flow-ui.service
+Native systemd service unit on Linux.
+.TP
+.I /usr/local/etc/rc.d/flow_ui
+FreeBSD
+.BR rc.d (8)
+service script (\fI/etc/rc.d/flow_ui\fR on OpenBSD).
+.TP
+.I /var/lib/flow-ui
+Runtime state and ASP.NET Core Data Protection key directory (\fI/var/db/flow-ui\fR on FreeBSD, OpenBSD, and macOS).
+.SH EXAMPLES
+Start FlowUI interactively against a local go-flowAPI instance:
+.PP
+.RS
+.nf
+FLOW_API_URL=http://localhost:8080 ASPNETCORE_URLS=http://127.0.0.1:5185 flow-ui
+.fi
+.RE
+.PP
+Enable and start the Linux systemd service:
+.PP
+.RS
+.nf
+sudo vi /etc/flow-ui/flow-ui.env
+sudo systemctl enable --now flow-ui.service
+sudo journalctl -u flow-ui.service -f
+.fi
+.RE
+.SH SEE ALSO
+.BR flow-ui.env (5),
+.BR systemctl (1)
+.SH AUTHOR
+ETL Madness <https://github.com/etl-madness/flowUI>

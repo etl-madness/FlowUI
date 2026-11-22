@@ -1,0 +1,35 @@
+post_install() {
+    getent group flowui >/dev/null 2>&1 || groupadd --system flowui || true
+    getent passwd flowui >/dev/null 2>&1 || useradd --system --gid flowui --home-dir /var/lib/flow-ui --no-create-home --shell /usr/bin/nologin flowui || true
+
+    chown flowui:flowui /var/lib/flow-ui /var/log/flow-ui 2>/dev/null || true
+    chown root:flowui /etc/flow-ui /etc/flow-ui/flow-ui.env 2>/dev/null || true
+    chmod 0640 /etc/flow-ui/flow-ui.env 2>/dev/null || true
+
+    if [ -d /run/systemd/system ] && command -v systemctl >/dev/null 2>&1; then
+        systemctl daemon-reload >/dev/null 2>&1 || true
+    fi
+    printf "==> Configure /etc/flow-ui/flow-ui.env, then run:\n"
+    printf "    sudo systemctl enable --now flow-ui.service\n"
+}
+
+post_upgrade() {
+    post_install
+    if [ -d /run/systemd/system ] && command -v systemctl >/dev/null 2>&1; then
+        if systemctl is-active --quiet flow-ui.service >/dev/null 2>&1; then
+            systemctl try-restart flow-ui.service >/dev/null 2>&1 || true
+        fi
+    fi
+}
+
+pre_remove() {
+    if [ -d /run/systemd/system ] && command -v systemctl >/dev/null 2>&1; then
+        systemctl --no-reload disable --now flow-ui.service >/dev/null 2>&1 || true
+    fi
+}
+
+post_remove() {
+    if [ -d /run/systemd/system ] && command -v systemctl >/dev/null 2>&1; then
+        systemctl daemon-reload >/dev/null 2>&1 || true
+    fi
+}

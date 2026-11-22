@@ -1,0 +1,44 @@
+#!/bin/sh
+set -e
+
+case "${1:-}" in
+    configure)
+        if ! getent group flowui >/dev/null 2>&1; then
+            if command -v groupadd >/dev/null 2>&1; then
+                groupadd --system flowui || true
+            elif command -v addgroup >/dev/null 2>&1; then
+                addgroup --system flowui || true
+            fi
+        fi
+
+        if ! getent passwd flowui >/dev/null 2>&1; then
+            NOLOGIN_SHELL="/usr/sbin/nologin"
+            [ -x "$NOLOGIN_SHELL" ] || NOLOGIN_SHELL="/sbin/nologin"
+            [ -x "$NOLOGIN_SHELL" ] || NOLOGIN_SHELL="/bin/false"
+            if command -v useradd >/dev/null 2>&1; then
+                useradd --system --gid flowui --home-dir /var/lib/flow-ui --no-create-home --shell "$NOLOGIN_SHELL" flowui || true
+            elif command -v adduser >/dev/null 2>&1; then
+                adduser --system --ingroup flowui --home /var/lib/flow-ui --no-create-home --shell "$NOLOGIN_SHELL" flowui || true
+            fi
+        fi
+
+        mkdir -p /var/lib/flow-ui /var/log/flow-ui /etc/flow-ui
+        if getent passwd flowui >/dev/null 2>&1; then
+            chown flowui:flowui /var/lib/flow-ui /var/log/flow-ui || true
+            chmod 0750 /var/lib/flow-ui /var/log/flow-ui || true
+            if [ -f /etc/flow-ui/flow-ui.env ]; then
+                chown root:flowui /etc/flow-ui/flow-ui.env || true
+                chmod 0640 /etc/flow-ui/flow-ui.env || true
+            fi
+        fi
+
+        if [ -d /run/systemd/system ] && command -v systemctl >/dev/null 2>&1; then
+            systemctl daemon-reload >/dev/null 2>&1 || true
+            if [ -n "${2:-}" ] && systemctl is-active --quiet flow-ui.service >/dev/null 2>&1; then
+                systemctl try-restart flow-ui.service >/dev/null 2>&1 || true
+            fi
+        fi
+        ;;
+esac
+
+exit 0

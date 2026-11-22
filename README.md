@@ -72,6 +72,27 @@ dotnet publish FlowUI/FlowUI.csproj -c Release -r linux-x64 --self-contained tru
 
 ---
 
+## OS Packaging, Installation & Background Services (`/opt/flow-ui` & Windows WinGet / SCM)
+
+Build scripts, package manifests, OS service units (`systemd`, OpenRC, SysVinit, FreeBSD `rc.d`, OpenBSD `rc.d`, macOS `launchd`, and native Windows Service helpers), `man` pages, GNU `info` documentation, WiX `.msi` definitions, and WinGet manifests are located in [`packaging/`](packaging/README.md).
+
+Packages use non-colliding identifiers (**`flow-ui`** on Unix, **`ETLMadness.FlowUI`** on WinGet) and install isolated under **`/opt/flow-ui`** (or `C:\Program Files\ETL Madness\Flow UI\`) so they can run side-by-side with `go-flow` (`/opt/flow`) and `go-flowAPI` (`/opt/flow-api`) with zero file collisions:
+
+| Target Platform | Package Format | Build Script | Install Command | OS Service / `rc` Integration |
+| :--- | :--- | :--- | :--- | :--- |
+| **Debian / Ubuntu** | `.deb` *(self-contained)* | `sh ./packaging/scripts/build-deb.sh [amd64\|arm64]` | `sudo apt install ./packaging/dist/flow-ui_*.deb` | `systemd` (`flow-ui.service`), OpenRC & SysVinit |
+| **RHEL / Fedora / SUSE / openSUSE** | `.rpm` *(self-contained)* | `sh ./packaging/scripts/build-rpm.sh [amd64\|arm64]` | `sudo dnf install ./packaging/dist/flow-ui-*.rpm` *(or `zypper`)* | `systemd` (`flow-ui.service`), OpenRC & SysVinit |
+| **Arch Linux** | `.pkg.tar.zst` *(self-contained)* | `sh ./packaging/scripts/build-arch.sh [amd64\|arm64]` | `sudo pacman -U ./packaging/dist/flow-ui-*.pkg.tar.zst` | `systemd` (`flow-ui.service`) |
+| **macOS** | `.pkg` *(self-contained)* | `sh ./packaging/scripts/build-macos-pkg.sh [arm64\|amd64]` | `sudo installer -pkg ./packaging/dist/flow-ui-*.pkg -target /` | `launchd` (`com.etlmadness.flow-ui.plist`) |
+| **FreeBSD** | `.pkg` *(requires `pkg install dotnet`)* | `sh ./packaging/scripts/build-freebsd-pkg.sh [amd64\|arm64]` | `sudo pkg add ./packaging/dist/flow-ui-*.pkg` | `rc.d` (`/usr/local/etc/rc.d/flow_ui` + `sysrc`) |
+| **OpenBSD** | `.tgz` *(framework-dependent)* | `sh ./packaging/scripts/build-openbsd-pkg.sh [amd64\|arm64]` | `doas pkg_add -D unsigned ./packaging/dist/openbsd-amd64/flow-ui-*.tgz` | `rc.d` (`/etc/rc.d/flow_ui` + `rcctl`; requires custom `dotnet`) |
+| **Windows (WinGet Portable)** | `.zip` + WinGet YAML *(self-contained)* | `.\packaging\scripts\Build-Windows.ps1 -Format zip` | `winget install --manifest packaging\dist\winget\e\ETLMadness\FlowUI\<ver>\` | Native SCM in `FlowUI.exe` + `Install-FlowUIService.ps1` |
+| **Windows (Enterprise MSI)** | `.msi` + WinGet YAML *(self-contained)* | `.\packaging\scripts\Build-Windows.ps1 -Format all` | `msiexec /i packaging\dist\flow-ui-*-windows-amd64.msi` | Native SCM in `FlowUI.exe` + `Install-FlowUIService.ps1` |
+
+See **[`packaging/README.md`](packaging/README.md)** and **[`packaging/winget/README.md`](packaging/winget/README.md)** for full build options, `flow-ui.env` configuration, and step-by-step service setup and uninstall commands.
+
+---
+
 ## 3. Environment Variables & Configuration (`AppConfig`)
 
 `FlowUI` is configured through environment variables read by [`AppConfig.cs`](FlowUI/Config/AppConfig.cs):

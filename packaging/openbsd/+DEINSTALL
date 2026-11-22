@@ -1,0 +1,13 @@
+#!/bin/sh
+# OpenBSD pre-deinstall script for flow-ui.
+
+ACTION="${2:-DEINSTALL}"
+if [ "$ACTION" = "DEINSTALL" ]; then
+    if command -v rcctl >/dev/null 2>&1; then
+        rcctl stop flow_ui >/dev/null 2>&1 || true
+    elif [ -x /etc/rc.d/flow_ui ]; then
+        /etc/rc.d/flow_ui stop >/dev/null 2>&1 || true
+    fi
+fi
+
+exit 0

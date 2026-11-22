@@ -1,0 +1,101 @@
+\input texinfo
+@setfilename flow-ui.info
+@settitle ETL Madness FlowUI (Flow Builder Studio)
+
+@dircategory Network Applications and Daemons
+@direntry
+* flow-ui: (flow-ui)Invoking flow-ui.              ETL Madness FlowUI web application.
+* flow-ui.env: (flow-ui)Configuration File.        Environment configuration for FlowUI services.
+@end direntry
+
+@copying
+This manual is for ETL Madness FlowUI (Flow Builder Studio).
+
+Copyright @copyright{} 2026 ETL Madness. Licensed under the MIT License.
+@end copying
+
+@titlepage
+@title ETL Madness FlowUI
+@subtitle Flow Builder Studio (.NET 10 Blazor Server)
+@author ETL Madness
+@page
+@vskip 0pt plus 1filll
+@insertcopying
+@end titlepage
+
+@contents
+
+@ifnottex
+@node Top
+@top ETL Madness FlowUI
+
+This manual documents @strong{FlowUI} (Flow Builder Studio), the interactive
+.NET 10 ASP.NET Core Blazor Server web application for visually designing,
+configuring, signing, encrypting, validating, executing, and monitoring XML
+ETL pipelines powered by @code{go-flow} and @code{go-flowAPI}.
+
+@menu
+* Overview and Architecture::   Stateless frontend design and package layout.
+* Invoking flow-ui::            Command-line options and launcher wrapper.
+* Configuration File::          Syntax and variables for @file{flow-ui.env}.
+* OS Services and Daemons::     systemd, OpenRC, SysVinit, FreeBSD/OpenBSD rc.d, launchd, and Windows SCM.
+@end menu
+@end ifnottex
+
+@node Overview and Architecture
+@chapter Overview and Architecture
+
+@code{FlowUI} is a stateless visual studio and orchestration frontend built on
+.NET 10 ASP.NET Core Blazor Server. It does not connect directly to any
+application database; all artifact persistence, validation, execution, SSE
+streaming, user/group/pipeline-group/ACL administration, and telemetry flow
+over HTTP/HTTPS to @code{go-flowAPI}.
+
+Packages install isolated under @file{/opt/flow-ui} on Unix platforms
+(Linux, macOS, FreeBSD, and OpenBSD) and
+@file{C:\Program Files\ETL Madness\Flow UI\} on Windows, so FlowUI can be
+installed side-by-side with @code{go-flow} (@file{/opt/flow}) and
+@code{go-flowAPI} (@file{/opt/flow-api}) with zero file collisions.
+
+@node Invoking flow-ui
+@chapter Invoking @code{flow-ui}
+
+Synopsis:
+
+@example
+flow-ui [--env-file PATH] [--urls URLS] [--contentRoot PATH] [--service-name NAME]
+flow-ui --version | --help
+@end example
+
+On Unix systems, @file{/opt/flow-ui/bin/flow-ui} launches the published .NET 10
+application in @file{/opt/flow-ui/app/} with @option{--contentRoot /opt/flow-ui/app}
+so static assets and embedded documentation resolve regardless of the caller's
+working directory.
+
+@node Configuration File
+@chapter Configuration File (@file{flow-ui.env})
+
+@code{flow-ui.env} uses @code{KEY=VALUE} syntax. Existing non-empty process
+environment variables take precedence over values in the file.
+
+@itemize @bullet
+@item @code{ASPNETCORE_ENVIRONMENT}: Recommended value @code{Production}.
+@item @code{ASPNETCORE_URLS}: Explicit Kestrel listen URLs (e.g., @code{http://0.0.0.0:5185}).
+@item @code{FLOW_API_URL}: Base URL of @code{go-flowAPI} (e.g., @code{http://localhost:8080}).
+@item @code{FLOW_UI_AUTH_MODE}: @code{ApiBasic} (default) or @code{Windows}.
+@item @code{FLOW_API_BASIC_AUTH}: Optional Base64 service token for @code{Windows} mode.
+@end itemize
+
+@node OS Services and Daemons
+@chapter OS Services and Daemons
+
+@itemize @bullet
+@item @strong{Linux systemd}: @file{/usr/lib/systemd/system/flow-ui.service} (user @code{flowui}, state @file{/var/lib/flow-ui}).
+@item @strong{Linux OpenRC / SysVinit}: Templates in @file{/opt/flow-ui/share/services/}.
+@item @strong{FreeBSD rc.d}: @file{/usr/local/etc/rc.d/flow_ui} (enable via @code{sysrc flow_ui_enable="YES"}; requires FreeBSD @code{dotnet} package).
+@item @strong{OpenBSD rc.d}: @file{/etc/rc.d/flow_ui} (enable via @code{rcctl enable flow_ui}; requires a custom/ported .NET 10 runtime on OpenBSD).
+@item @strong{macOS launchd}: @file{/opt/flow-ui/share/services/launchd/com.etlmadness.flow-ui.plist}.
+@item @strong{Windows SCM}: Native Windows Service support in @file{FlowUI.exe} with @file{Install-FlowUIService.ps1} and @file{Uninstall-FlowUIService.ps1}.
+@end itemize
+
+@bye

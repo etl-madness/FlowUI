@@ -1,0 +1,65 @@
+# Maintainer: ETL Madness <maintainers@etl-madness.invalid>
+pkgname=flow-ui
+pkgver=__PKGVER__
+pkgrel=__PKGREL__
+pkgdesc="ETL Madness FlowUI — Flow Builder Studio (.NET 10 Blazor Server) (/opt/flow-ui)"
+arch=('__CARCH__')
+url="https://github.com/etl-madness/flowUI"
+license=('MIT')
+depends=('icu' 'openssl' 'zlib' 'gcc-libs')
+options=('!debug' '!strip')
+install=flow-ui.install
+backup=(
+    'etc/profile.d/flow-ui.sh'
+    'etc/flow-ui/flow-ui.env'
+)
+source=("flow-ui-${pkgver}-staged.tar.gz")
+sha256sums=('SKIP')
+
+package() {
+    install -dm0755 "${pkgdir}/opt/flow-ui/app"
+    cp -a "${srcdir}/app/." "${pkgdir}/opt/flow-ui/app/"
+    chmod 0755 "${pkgdir}/opt/flow-ui/app/FlowUI"
+
+    install -dm0755 "${pkgdir}/opt/flow-ui/bin"
+    install -m0755 "${srcdir}/bin/flow-ui" "${pkgdir}/opt/flow-ui/bin/flow-ui"
+
+    install -dm0755 "${pkgdir}/opt/flow-ui/share/man/man1"
+    install -m0644 "${srcdir}/doc/man1/flow-ui.1.gz" "${pkgdir}/opt/flow-ui/share/man/man1/flow-ui.1.gz"
+
+    install -dm0755 "${pkgdir}/opt/flow-ui/share/man/man5"
+    install -m0644 "${srcdir}/doc/man5/flow-ui.env.5.gz" "${pkgdir}/opt/flow-ui/share/man/man5/flow-ui.env.5.gz"
+
+    install -dm0755 "${pkgdir}/opt/flow-ui/share/info"
+    install -m0644 "${srcdir}/doc/info/flow-ui.info.gz" "${pkgdir}/opt/flow-ui/share/info/flow-ui.info.gz"
+    install -m0644 "${srcdir}/doc/info/dir" "${pkgdir}/opt/flow-ui/share/info/dir"
+
+    install -dm0755 "${pkgdir}/opt/flow-ui/share/doc"
+    install -m0644 "${srcdir}/guides/README.md" "${pkgdir}/opt/flow-ui/share/doc/README.md"
+    install -m0644 "${srcdir}/guides/DOCKER.md" "${pkgdir}/opt/flow-ui/share/doc/DOCKER.md"
+
+    install -dm0755 "${pkgdir}/opt/flow-ui/share/services/systemd"
+    install -m0644 "${srcdir}/services/systemd/flow-ui.service" "${pkgdir}/opt/flow-ui/share/services/systemd/flow-ui.service"
+    install -dm0755 "${pkgdir}/opt/flow-ui/share/services/openrc"
+    install -m0755 "${srcdir}/services/openrc/flow-ui" "${pkgdir}/opt/flow-ui/share/services/openrc/flow-ui"
+    install -dm0755 "${pkgdir}/opt/flow-ui/share/services/sysvinit"
+    install -m0755 "${srcdir}/services/sysvinit/flow-ui" "${pkgdir}/opt/flow-ui/share/services/sysvinit/flow-ui"
+
+    install -dm0755 "${pkgdir}/opt/flow-ui/share/licenses"
+    install -m0644 "${srcdir}/LICENSE.txt" "${pkgdir}/opt/flow-ui/share/licenses/LICENSE"
+
+    install -dm0755 "${pkgdir}/usr/share/licenses/${pkgname}"
+    install -m0644 "${srcdir}/LICENSE.txt" "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
+
+    install -dm0755 "${pkgdir}/etc/profile.d"
+    install -m0644 "${srcdir}/profile.d/flow-ui.sh" "${pkgdir}/etc/profile.d/flow-ui.sh"
+
+    install -dm0750 "${pkgdir}/etc/flow-ui"
+    install -m0640 "${srcdir}/etc-env/flow-ui.env" "${pkgdir}/etc/flow-ui/flow-ui.env"
+
+    install -dm0755 "${pkgdir}/usr/lib/systemd/system"
+    install -m0644 "${srcdir}/services/systemd/flow-ui.service" "${pkgdir}/usr/lib/systemd/system/flow-ui.service"
+
+    install -dm0750 "${pkgdir}/var/lib/flow-ui"
+    install -dm0750 "${pkgdir}/var/log/flow-ui"
+}

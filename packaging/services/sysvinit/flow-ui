@@ -1,0 +1,108 @@
+#!/bin/sh
+### BEGIN INIT INFO
+# Provides:          flow-ui
+# Required-Start:    $network $remote_fs $syslog
+# Required-Stop:     $network $remote_fs $syslog
+# Default-Start:     2 3 4 5
+# Default-Stop:      0 1 6
+# Short-Description: ETL Madness FlowUI — Flow Builder Studio
+# Description:       Starts and stops the ETL Madness FlowUI web application (/opt/flow-ui/bin/flow-ui).
+### END INIT INFO
+
+set -u
+
+NAME="flow-ui"
+DAEMON="/opt/flow-ui/bin/flow-ui"
+DAEMON_USER="${FLOW_UI_USER:-flowui}"
+ENV_FILE="${FLOW_UI_ENV_FILE:-/etc/flow-ui/flow-ui.env}"
+WORKDIR="${FLOW_UI_WORKDIR:-/var/lib/flow-ui}"
+PIDFILE="/var/run/${NAME}.pid"
+LOGDIR="/var/log/${NAME}"
+LOGFILE="${LOGDIR}/${NAME}.log"
+EXTRA_OPTS="${FLOW_UI_OPTS:-}"
+
+[ -x "$DAEMON" ] || exit 0
+
+is_running() {
+    [ -f "$PIDFILE" ] || return 1
+    pid=$(cat "$PIDFILE" 2>/dev/null || true)
+    [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null
+}
+
+do_start() {
+    if is_running; then
+        printf '%s is already running (PID %s).\n' "$NAME" "$(cat "$PIDFILE")"
+        return 0
+    fi
+    mkdir -p "$WORKDIR" "$LOGDIR"
+    if id "$DAEMON_USER" >/dev/null 2>&1; then
+        chown "$DAEMON_USER" "$WORKDIR" "$LOGDIR" 2>/dev/null || true
+    fi
+    printf 'Starting %s...\n' "$NAME"
+    if command -v start-stop-daemon >/dev/null 2>&1; then
+        chuid_args=""
+        if id "$DAEMON_USER" >/dev/null 2>&1; then
+            chuid_args="--chuid ${DAEMON_USER}"
+        fi
+        # shellcheck disable=SC2086
+        HOME="$WORKDIR" DOTNET_CLI_HOME="$WORKDIR" \
+        start-stop-daemon --start --background --make-pidfile --pidfile "$PIDFILE" \
+            --chdir "$WORKDIR" $chuid_args \
+            --startas /bin/sh -- -c "exec '$DAEMON' --env-file '$ENV_FILE' $EXTRA_OPTS >>'$LOGFILE' 2>&1"
+    elif id "$DAEMON_USER" >/dev/null 2>&1 && command -v su >/dev/null 2>&1; then
+        su -s /bin/sh "$DAEMON_USER" -c "HOME='$WORKDIR' DOTNET_CLI_HOME='$WORKDIR' cd '$WORKDIR' && nohup '$DAEMON' --env-file '$ENV_FILE' $EXTRA_OPTS >>'$LOGFILE' 2>&1 & echo \$! > '$PIDFILE'"
+    else
+        (
+            cd "$WORKDIR" || exit 1
+            # shellcheck disable=SC2086
+            HOME="$WORKDIR" DOTNET_CLI_HOME="$WORKDIR" nohup "$DAEMON" --env-file "$ENV_FILE" $EXTRA_OPTS >>"$LOGFILE" 2>&1 &
+            echo $! > "$PIDFILE"
+        )
+    fi
+}
+
+do_stop() {
+    if ! is_running; then
+        printf '%s is not running.\n' "$NAME"
+        rm -f "$PIDFILE"
+        return 0
+    fi
+    pid=$(cat "$PIDFILE")
+    printf 'Stopping %s (PID %s)...\n' "$NAME" "$pid"
+    kill -TERM "$pid" 2>/dev/null || true
+    i=0
+    while [ "$i" -lt 15 ] && kill -0 "$pid" 2>/dev/null; do
+        sleep 1
+        i=$((i + 1))
+    done
+    if kill -0 "$pid" 2>/dev/null; then
+        kill -KILL "$pid" 2>/dev/null || true
+    fi
+    rm -f "$PIDFILE"
+}
+
+case "${1:-}" in
+    start)
+        do_start
+        ;;
+    stop)
+        do_stop
+        ;;
+    restart|reload|force-reload)
+        do_stop
+        do_start
+        ;;
+    status)
+        if is_running; then
+            printf '%s is running (PID %s).\n' "$NAME" "$(cat "$PIDFILE")"
+            exit 0
+        else
+            printf '%s is stopped.\n' "$NAME"
+            exit 3
+        fi
+        ;;
+    *)
+        printf 'Usage: %s {start|stop|restart|status}\n' "$0" >&2
+        exit 2
+        ;;
+esac

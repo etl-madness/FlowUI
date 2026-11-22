@@ -1,0 +1,8 @@
+#!/bin/sh
+# FreeBSD pre-deinstall script for flow-ui.
+
+if [ -x /usr/local/etc/rc.d/flow_ui ]; then
+    /usr/local/etc/rc.d/flow_ui forcestop >/dev/null 2>&1 || true
+fi
+
+exit 0

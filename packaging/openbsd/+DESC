@@ -1,0 +1,14 @@
+ETL Madness FlowUI (Flow Builder Studio) is an interactive .NET 10
+ASP.NET Core Blazor Server web application for visually designing,
+configuring, signing, encrypting, validating, executing, and monitoring
+XML ETL pipelines powered by go-flow and go-flowAPI.
+
+Installed isolated under /opt/flow-ui as a framework-dependent .NET 10
+bundle alongside OpenBSD rc.d(8) service integration (/etc/rc.d/flow_ui)
+and environment configuration at /etc/flow-ui/flow-ui.env.
+
+NOTE: FlowUI requires a .NET 10 ASP.NET Core runtime ('dotnet') in PATH
+or /usr/local/bin/dotnet. Because OpenBSD does not currently ship an
+official dotnet package in the standard ports tree, provide a custom
+OpenBSD dotnet build or run FlowUI on a Linux/FreeBSD/macOS/Windows host
+pointed at your OpenBSD go-flowAPI backend via FLOW_API_URL.

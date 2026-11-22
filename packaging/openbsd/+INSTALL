@@ -1,0 +1,28 @@
+#!/bin/sh
+# OpenBSD post-install script for flow-ui.
+# Creates unprivileged flowui user/group, state/log directories, and seeds
+# /etc/flow-ui/flow-ui.env without overwriting existing edits.
+
+ACTION="${2:-POST-INSTALL}"
+if [ "$ACTION" != "POST-INSTALL" ]; then
+    exit 0
+fi
+
+if ! groupinfo flowui >/dev/null 2>&1; then
+    groupadd flowui 2>/dev/null || true
+fi
+
+if ! userinfo flowui >/dev/null 2>&1; then
+    useradd -g flowui -d /var/db/flow-ui -s /sbin/nologin -c "ETL Madness FlowUI daemon" flowui 2>/dev/null || true
+fi
+
+install -d -o flowui -g flowui -m 0750 /var/db/flow-ui /var/log/flow-ui 2>/dev/null || true
+install -d -o root -g flowui -m 0750 /etc/flow-ui 2>/dev/null || true
+
+if [ ! -f /etc/flow-ui/flow-ui.env ] && [ -f /opt/flow-ui/share/examples/flow-ui/flow-ui.env.sample ]; then
+    cp /opt/flow-ui/share/examples/flow-ui/flow-ui.env.sample /etc/flow-ui/flow-ui.env
+    chown root:flowui /etc/flow-ui/flow-ui.env 2>/dev/null || true
+    chmod 0640 /etc/flow-ui/flow-ui.env 2>/dev/null || true
+fi
+
+exit 0

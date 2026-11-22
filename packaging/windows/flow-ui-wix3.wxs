@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- WiX v3 / Linux msitools (wixl) manifest for ETL Madness FlowUI (.msi) -->
+<!-- Compiled together with the auto-generated app-files-wix3.wxs fragment -->
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <Product Id="$(var.FlowProductCode)"
+           Name="ETL Madness FlowUI"
+           Language="1033"
+           Version="$(var.FlowMsiVersion)"
+           Manufacturer="ETL Madness"
+           UpgradeCode="{8F3A9C12-6D4E-4B8A-9E21-5C7B2A1F04D9}">
+
+    <Package InstallerVersion="500"
+             Compressed="yes"
+             InstallScope="perMachine"
+             Description="ETL Madness FlowUI (Flow Builder Studio) — .NET 10 Blazor Server Web Application"
+             Manufacturer="ETL Madness" />
+
+    <MajorUpgrade DowngradeErrorMessage="A newer version of [ProductName] is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <Directory Id="TARGETDIR" Name="SourceDir">
+      <Directory Id="ProgramFiles64Folder">
+        <Directory Id="VendorFolder" Name="ETL Madness">
+          <Directory Id="INSTALLFOLDER" Name="Flow UI">
+            <Directory Id="AppFolder" Name="app" />
+            <Directory Id="DocsFolder" Name="docs" />
+            <Directory Id="ShareFolder" Name="share">
+              <Directory Id="ServicesFolder" Name="services">
+                <Directory Id="WinServicesFolder" Name="windows" />
+              </Directory>
+              <Directory Id="ManFolder" Name="man">
+                <Directory Id="Man1Folder" Name="man1" />
+                <Directory Id="Man5Folder" Name="man5" />
+              </Directory>
+            </Directory>
+          </Directory>
+        </Directory>
+      </Directory>
+    </Directory>
+
+    <ComponentGroup Id="FlowUIProductComponents">
+      <Component Id="CmpFlowUIPath" Directory="AppFolder" Guid="{D2B54C18-7F3E-4A92-9A61-3E8C1B4D702F}">
+        <Environment Id="EnvFlowUIPath"
+                     Name="PATH"
+                     Value="[AppFolder]"
+                     Permanent="no"
+                     Part="last"
+                     Action="set"
+                     System="yes" />
+      </Component>
+      <Component Id="CmpLicense" Directory="INSTALLFOLDER" Guid="*">
+        <File Id="FilLicense" Source="$(var.StageDir)/LICENSE.txt" KeyPath="yes" />
+      </Component>
+      <Component Id="CmpDocReadme" Directory="DocsFolder" Guid="*">
+        <File Id="FilDocReadme" Source="$(var.StageDir)/docs/README.md" KeyPath="yes" />
+      </Component>
+      <Component Id="CmpDocDocker" Directory="DocsFolder" Guid="*">
+        <File Id="FilDocDocker" Source="$(var.StageDir)/docs/DOCKER.md" KeyPath="yes" />
+      </Component>
+      <Component Id="CmpWinSvcInstall" Directory="WinServicesFolder" Guid="*">
+        <File Id="FilWinSvcInstall" Source="$(var.StageDir)/share/services/windows/Install-FlowUIService.ps1" KeyPath="yes" />
+      </Component>
+      <Component Id="CmpWinSvcUninstall" Directory="WinServicesFolder" Guid="*">
+        <File Id="FilWinSvcUninstall" Source="$(var.StageDir)/share/services/windows/Uninstall-FlowUIService.ps1" KeyPath="yes" />
+      </Component>
+      <Component Id="CmpWinEnvExample" Directory="WinServicesFolder" Guid="*">
+        <File Id="FilWinEnvExample" Source="$(var.StageDir)/share/services/windows/flow-ui.env.example" KeyPath="yes" />
+      </Component>
+      <Component Id="CmpManUi1" Directory="Man1Folder" Guid="*">
+        <File Id="FilManUi1" Source="$(var.StageDir)/share/man/man1/flow-ui.1" KeyPath="yes" />
+      </Component>
+      <Component Id="CmpManEnv5" Directory="Man5Folder" Guid="*">
+        <File Id="FilManEnv5" Source="$(var.StageDir)/share/man/man5/flow-ui.env.5" KeyPath="yes" />
+      </Component>
+    </ComponentGroup>
+
+    <Feature Id="MainFeature" Title="ETL Madness FlowUI" Level="1">
+      <ComponentGroupRef Id="FlowUIProductComponents" />
+      <ComponentGroupRef Id="FlowUIAppFiles" />
+    </Feature>
+  </Product>
+</Wix>

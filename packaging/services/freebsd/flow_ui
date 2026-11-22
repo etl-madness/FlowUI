@@ -1,0 +1,57 @@
+#!/bin/sh
+#
+# PROVIDE: flow_ui
+# REQUIRE: LOGIN NETWORKING DAEMON
+# KEYWORD: shutdown
+#
+# Add the following lines to /etc/rc.conf (or run 'sysrc flow_ui_enable="YES"')
+# to enable FlowUI at boot on FreeBSD:
+#
+# flow_ui_enable (bool):     Set to "YES" to enable FlowUI (default: "NO").
+# flow_ui_user (str):        Unprivileged account to run as (default: "flowui").
+# flow_ui_group (str):       Group to run as (default: "flowui").
+# flow_ui_env_file (path):   KEY=VALUE environment config (default: "/usr/local/etc/flow-ui/flow-ui.env").
+# flow_ui_chdir (path):      Working directory (default: "/var/db/flow-ui").
+# flow_ui_logfile (path):    Daemon output log file (default: "/var/log/flow-ui/flow-ui.log").
+# flow_ui_flags (str):       Additional CLI flags passed to flow-ui (default: "").
+
+. /etc/rc.subr
+
+name="flow_ui"
+rcvar="flow_ui_enable"
+
+load_rc_config $name
+
+: "${flow_ui_enable:=NO}"
+: "${flow_ui_user:=flowui}"
+: "${flow_ui_group:=flowui}"
+: "${flow_ui_env_file:=/usr/local/etc/flow-ui/flow-ui.env}"
+: "${flow_ui_chdir:=/var/db/flow-ui}"
+: "${flow_ui_logfile:=/var/log/flow-ui/flow-ui.log}"
+: "${flow_ui_flags:=}"
+
+ui_extra_flags="${flow_ui_flags}"
+flow_ui_flags=""
+
+export HOME="${flow_ui_chdir}"
+export DOTNET_CLI_HOME="${flow_ui_chdir}"
+
+pidfile="/var/run/${name}/${name}.pid"
+child_pidfile="/var/run/${name}/${name}_child.pid"
+ui_bin="/opt/flow-ui/bin/flow-ui"
+procname="/usr/sbin/daemon"
+command="/usr/sbin/daemon"
+command_args="-f -R 5 -P ${pidfile} -p ${child_pidfile} -t ${name} -o ${flow_ui_logfile} ${ui_bin} --env-file ${flow_ui_env_file} ${ui_extra_flags}"
+start_precmd="${name}_prestart"
+
+flow_ui_prestart()
+{
+    install -d -o "${flow_ui_user}" -g "${flow_ui_group}" -m 0750 "/var/run/${name}"
+    install -d -o "${flow_ui_user}" -g "${flow_ui_group}" -m 0750 "${flow_ui_chdir}"
+    install -d -o "${flow_ui_user}" -g "${flow_ui_group}" -m 0750 "$(dirname "${flow_ui_logfile}")"
+    if [ ! -f "${flow_ui_logfile}" ]; then
+        install -o "${flow_ui_user}" -g "${flow_ui_group}" -m 0640 /dev/null "${flow_ui_logfile}"
+    fi
+}
+
+run_rc_command "$1"

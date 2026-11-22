@@ -1,0 +1,11 @@
+This is the file .../info/dir, which contains the
+topmost node of the Info hierarchy, called (dir)Top.
+The first time you invoke Info you start off looking at this node.
+
+File: dir,	Node: Top	This is the top of the INFO tree
+
+* Menu:
+
+Network Applications and Daemons
+* flow-ui: (flow-ui)Invoking flow-ui.              ETL Madness FlowUI web application.
+* flow-ui.env: (flow-ui)Configuration File.        Environment configuration for FlowUI services.

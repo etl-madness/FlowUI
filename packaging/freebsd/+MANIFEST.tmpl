@@ -1,0 +1,24 @@
+name: "flow-ui"
+version: "__VERSION__"
+origin: "www/flow-ui"
+comment: "ETL Madness FlowUI — Flow Builder Studio (.NET 10 Blazor Server) (/opt/flow-ui)"
+arch: "__ABI__"
+abi: "__ABI__"
+www: "https://github.com/etl-madness/flowUI"
+maintainer: "maintainers@etl-madness.invalid"
+prefix: "/opt/flow-ui"
+licenselogic: "single"
+licenses: [
+    "MIT"
+]
+flatsize: __FLATSIZE__
+desc: <<EOD
+ETL Madness FlowUI (Flow Builder Studio) is an interactive .NET 10 ASP.NET Core
+Blazor Server web application for visually designing, configuring, signing,
+encrypting, validating, executing, and monitoring XML ETL pipelines powered by
+go-flow and go-flowAPI. Installed isolated under /opt/flow-ui with FreeBSD rc.d
+service integration (/usr/local/etc/rc.d/flow_ui).
+
+Note: On FreeBSD, FlowUI is packaged as a framework-dependent .NET 10 app and
+requires the FreeBSD dotnet runtime package (pkg install dotnet).
+EOD

@@ -1,0 +1,39 @@
+#!/sbin/openrc-run
+# OpenRC init script for ETL Madness FlowUI (Alpine Linux, Gentoo, Artix).
+# Install to /etc/init.d/flow-ui (chmod 0755) and enable via:
+#   rc-update add flow-ui default
+#   rc-service flow-ui start
+
+name="FlowUI"
+description="ETL Madness FlowUI — Flow Builder Studio (.NET 10 Blazor Server)"
+
+: "${FLOW_UI_USER:=flowui}"
+: "${FLOW_UI_GROUP:=flowui}"
+: "${FLOW_UI_ENV_FILE:=/etc/flow-ui/flow-ui.env}"
+: "${FLOW_UI_WORKDIR:=/var/lib/flow-ui}"
+: "${FLOW_UI_LOGFILE:=/var/log/flow-ui/flow-ui.log}"
+: "${FLOW_UI_OPTS:=}"
+
+export HOME="${FLOW_UI_WORKDIR}"
+export DOTNET_CLI_HOME="${FLOW_UI_WORKDIR}"
+
+command="/opt/flow-ui/bin/flow-ui"
+command_args="--env-file ${FLOW_UI_ENV_FILE} ${FLOW_UI_OPTS}"
+command_user="${FLOW_UI_USER}:${FLOW_UI_GROUP}"
+command_background="yes"
+directory="${FLOW_UI_WORKDIR}"
+pidfile="/run/${RC_SVCNAME}.pid"
+output_log="${FLOW_UI_LOGFILE}"
+error_log="${FLOW_UI_LOGFILE}"
+retry="TERM/15/KILL/5"
+
+depend() {
+    need net
+    after firewall go-flow-api
+}
+
+start_pre() {
+    checkpath --directory --owner "${FLOW_UI_USER}:${FLOW_UI_GROUP}" --mode 0750 "${FLOW_UI_WORKDIR}"
+    checkpath --directory --owner "${FLOW_UI_USER}:${FLOW_UI_GROUP}" --mode 0750 "$(dirname "${FLOW_UI_LOGFILE}")"
+    checkpath --file --owner "${FLOW_UI_USER}:${FLOW_UI_GROUP}" --mode 0640 "${FLOW_UI_LOGFILE}"
+}
