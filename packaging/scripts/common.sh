@@ -88,15 +88,19 @@ publish_flow_ui_self_contained() {
     fi
 
     rm -rf "$out_app_dir"
-    mkdir -p "$out_app_dir"
+    mkdir -p "$out_app_dir" "${BUILD_ROOT}/tmp"
     log_info "Publishing self-contained FlowUI for ${rid}..."
 
     (
         cd "$REPO_ROOT"
+        TMPDIR="${BUILD_ROOT}/tmp" \
+        TEMP="${BUILD_ROOT}/tmp" \
+        TMP="${BUILD_ROOT}/tmp" \
         dotnet publish "$CSPROJ_PATH" \
             -c Release \
             -r "$rid" \
             --self-contained true \
+            --disable-build-servers \
             -p:PublishSingleFile=false \
             -p:DebugType=none \
             -p:DebugSymbols=false \
@@ -117,14 +121,18 @@ publish_flow_ui_framework_dependent() {
     fi
 
     rm -rf "$out_app_dir"
-    mkdir -p "$out_app_dir"
+    mkdir -p "$out_app_dir" "${BUILD_ROOT}/tmp"
     log_info "Publishing framework-dependent FlowUI (net10.0)..."
 
     (
         cd "$REPO_ROOT"
+        TMPDIR="${BUILD_ROOT}/tmp" \
+        TEMP="${BUILD_ROOT}/tmp" \
+        TMP="${BUILD_ROOT}/tmp" \
         dotnet publish "$CSPROJ_PATH" \
             -c Release \
             --no-self-contained \
+            --disable-build-servers \
             -p:UseAppHost=false \
             -p:DebugType=none \
             -p:DebugSymbols=false \

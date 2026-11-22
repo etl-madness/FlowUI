@@ -370,6 +370,7 @@ appsettings.Local.json
 secrets.json
 .env
 *.env
+!packaging/etc/flow-ui/flow-ui.env
 
 # JetBrains Rider & VS Code
 .idea/
