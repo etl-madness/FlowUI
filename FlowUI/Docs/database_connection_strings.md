@@ -211,7 +211,13 @@ The Microsoft SQL Server driver (`github.com/microsoft/go-mssqldb`) supports bot
 | `clientcertpath` | path | File path to `.pem` certificate | Certificate path for certificate-based Service Principal authentication. |
 | `resource id` | string | Azure Resource ID | Azure resource ID when using User-Assigned Managed Identity (`ActiveDirectoryMSI`). |
 | `additionallyallowedtenants` | string | Comma-separated tenant IDs | Allowed additional tenant IDs for multi-tenant Microsoft Entra authentication. |
-| `integrated security` | string / bool | `true`, `sspi` | Uses Windows Integrated Authentication (SSPI / Kerberos) under on-premises Windows Active Directory. |
+| `integrated security` | string / bool | `true`, `sspi` | Uses Windows Integrated Authentication (SSPI on Windows; Kerberos `krb5` on Linux/FreeBSD/OpenBSD/macOS). |
+| `authenticator` | string | `krb5`, `ntlm`, `winsspi` | Selects the integrated authentication provider. Set `authenticator=krb5` on Linux/FreeBSD/OpenBSD/macOS (omit on native Windows to use Windows SSPI). |
+| `krb5-credcachefile` | path | Path to MIT `FILE:` ticket cache (e.g. `/tmp/krb5cc_1001`) | Optional override for `KRB5CCNAME` (any leading `FILE:` prefix is stripped automatically by `flow`). |
+| `krb5-keytabfile` | path | Path to Kerberos `.keytab` file | Optional override for `KRB5_KTNAME` for unattended keytab authentication (takes precedence over `KRB5CCNAME` when set). |
+| `krb5-configfile` | path | Path to `krb5.conf` (default `/etc/krb5.conf`) | Optional override for `KRB5_CONFIG`. |
+| `krb5-realm` | string | Active Directory realm (e.g. `EXAMPLE.COM`) | Optional override for `AD_REALM` / `default_realm` in `krb5.conf`. |
+| `ServerSPN` | string | `MSSQLSvc/fqdn:1433` | Explicit SQL Server Service Principal Name (useful when connecting via a DNS CNAME/alias; short hostnames are auto-qualified with `AD_REALM`). |
 
 ### SQL Server Connection Examples
 
@@ -274,11 +280,55 @@ server=sql-cluster.internal;port=1433;user id=etl_operator;password=SecretPass20
           max_idle_conns="10" />
 ```
 
-#### Example 6: On-Premises Windows Integrated Authentication (Kerberos / NTLM)
-Uses current on-premises Windows domain logon credentials without storing passwords in configuration files:
+#### Example 6: On-Premises Windows Integrated Authentication (Windows SSPI)
+Uses current on-premises Windows domain logon credentials without storing passwords in configuration files *(omit `authenticator=krb5` on native Windows so `go-mssqldb` uses Windows SSPI)*:
 ```text
 server=localhost;database=finance;integrated security=true;
 ```
+
+#### Example 6b: Linux, FreeBSD, OpenBSD & macOS Active Directory Kerberos (`authenticator=krb5`)
+On Unix hosts (`linux`, `freebsd`, `openbsd`, `darwin`), `go-flow` (CLI, `builder`, and `db_importer`) and `go-flowAPI` automatically register the pure-Go Kerberos (`krb5`) authenticator via `github.com/etl-madness/flow` (`v1.4.5+`), strip any `FILE:` prefix from `KRB5CCNAME`/`KRB5_KTNAME`, and qualify short `MSSQLSvc` SPNs using `AD_REALM` or `/etc/krb5.conf`.
+
+1. **Acquire a MIT `FILE:` Kerberos ticket cache and export `KRB5CCNAME`:**
+```sh
+unset KRB5_KTNAME
+export KRB5CCNAME="FILE:/tmp/krb5cc_$(id -u)"
+export KRB5_CONFIG="/etc/krb5.conf"
+export AD_REALM="EXAMPLE.COM"
+
+kinit SVC_FLOW@EXAMPLE.COM
+klist -f
+```
+
+2. **Connection string (URL format):**
+```text
+sqlserver://db.example.com:1433?database=EXAMPLE_DB&integrated+security=true&authenticator=krb5&trustServerCertificate=true&app+name=goflow-connector
+```
+
+3. **XML pipeline `<database>` definition (note the escaped `&amp;`):**
+```xml
+<database name="prod_mssql"
+          driver="sqlserver"
+          connection_string="sqlserver://db.example.com:1433?database=EXAMPLE_DB&amp;integrated+security=true&amp;authenticator=krb5&amp;trustServerCertificate=true&amp;app+name=goflow-connector" />
+```
+
+4. **Using `authenticator=krb5` with `go-flow` CLI & `db_importer`:**
+```sh
+# Execute a pipeline using Kerberos for both pipeline <database> nodes and log_db:
+./flow -file my_pipeline.xml
+
+# Import/export XML artifacts in SQL Server using your Kerberos ticket:
+./db_importer \
+  -dsn "sqlserver://db.example.com:1433?database=EXAMPLE_DB&integrated+security=true&authenticator=krb5&trustServerCertificate=true" \
+  -table pipeline -name my_pipeline -file my_pipeline.xml
+```
+
+*(For unattended jobs without `kinit`, set `KRB5_KTNAME="/etc/go-flow/flow.keytab"` and `AD_USER="SVC_FLOW"` instead of `KRB5CCNAME`.)*
+
+> **How SQL Server authentication mode is selected on Unix:**
+> - **SQL Server Authentication (`sqlserver://user:password@host:1433?...`)**: Bare `user:password` credentials without `authenticator=krb5` automatically use standard SQL Server Authentication—even when `/etc/krb5.conf` or `KRB5CCNAME` is present on the host.
+> - **NTLM (`sqlserver://DOMAIN\user:password@host:1433?...`)**: `DOMAIN\user` + password without `authenticator=krb5` uses NTLM.
+> - **Kerberos (`integrated+security=true` / `authenticator=krb5` / keytab)**: Connections with no username/password, username + `krb5-keytabfile` (no password), or an explicit `authenticator=krb5` parameter use Kerberos (`krb5`). Include `authenticator=krb5` in Kerberos DSNs so Kerberos errors surface clearly instead of falling back.
 
 #### Example 7: Multi-Subnet Failover (Always On Availability Groups)
 In SQL Server Always On Availability Group (AG) architectures spanning multiple subnets or disaster recovery data centers, an AG listener registers multiple IP addresses in DNS. Setting `MultiSubnetFailover=true` instructs the driver to attempt parallel TCP connections to all resolved IP addresses simultaneously. Whichever replica answers first (the currently active primary or secondary node) wins the connection immediately—slashing failover discovery time from standard 20–30 second TCP timeout delays to milliseconds.
