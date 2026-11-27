@@ -42,6 +42,7 @@
                                 <th>Status</th>
                                 <th>Hostname</th>
                                 <th>OS User</th>
+                                <th>Log DB Server</th>
                                 <th>DB User</th>
                                 <th>Log SPID</th>
                                 <th>Duration</th>
@@ -54,7 +55,7 @@
                             @if (_runs.Count == 0)
                             {
                                 <tr>
-                                    <td colspan="9" style="text-align:center; padding:18px; color:var(--text-muted);">
+                                    <td colspan="10" style="text-align:center; padding:18px; color:var(--text-muted);">
                                         No pipeline runs found.
                                     </td>
                                 </tr>
@@ -73,6 +74,7 @@
                                         <td><span class="badge @GetBadgeClass(r.Status)">@r.Status</span></td>
                                         <td style="font-size:0.76rem;">@r.EffectiveHostname</td>
                                         <td style="font-size:0.76rem;">@(string.IsNullOrWhiteSpace(r.OsUserName) ? "-" : r.OsUserName)</td>
+                                        <td style="font-size:0.76rem;"><code>@r.EffectiveDbServer</code></td>
                                         <td style="font-size:0.76rem;">@(string.IsNullOrWhiteSpace(r.EffectiveDbUser) ? "-" : r.EffectiveDbUser)</td>
                                         <td><code style="font-size:0.75rem;">@r.EffectiveSpid</code></td>
                                         <td>@r.DurationMs ms</td>
@@ -101,7 +103,8 @@
                                 <th>Component</th>
                                 <th>Node ID</th>
                                 <th>Status</th>
-                                <th>DB / SPID</th>
+                                <th>DB Server</th>
+                                <th>DB User / SPID</th>
                                 <th>Rows (R/W/A)</th>
                                 <th>Output</th>
                                 <th>Time</th>
@@ -111,7 +114,7 @@
                             @if (_runEvents.Count == 0)
                             {
                                 <tr>
-                                    <td colspan="9" style="text-align:center; padding:20px; color:var(--text-muted);">
+                                    <td colspan="10" style="text-align:center; padding:20px; color:var(--text-muted);">
                                         Select a pipeline run above to inspect its node events.
                                     </td>
                                 </tr>
@@ -126,6 +129,9 @@
                                         <td><span class="palette-tag">&lt;@ev.NodeKind&gt;</span></td>
                                         <td><strong>@ev.NodeId</strong></td>
                                         <td><span class="badge @GetBadgeClass(ev.Status)">@ev.Status</span></td>
+                                        <td style="font-size:0.75rem;">
+                                            <code style="font-size:0.72rem;">@ev.EffectiveDbServer</code>
+                                        </td>
                                         <td style="font-size:0.75rem;">
                                             <span>@(string.IsNullOrWhiteSpace(ev.EffectiveDbUser) ? "-" : ev.EffectiveDbUser)</span>
                                             <span style="color:var(--text-muted);"> / </span>

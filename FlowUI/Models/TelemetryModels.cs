@@ -32,6 +32,22 @@ public abstract class TelemetryContextBase
         }
     }
 
+    [JsonPropertyName("db_server")]
+    public string DbServer { get; set; } = string.Empty;
+
+    [JsonPropertyName("database_server")]
+    public string DatabaseServer
+    {
+        get => DbServer;
+        set
+        {
+            if (!string.IsNullOrEmpty(value))
+            {
+                DbServer = value;
+            }
+        }
+    }
+
     [JsonPropertyName("spid")]
     public string Spid { get; set; } = string.Empty;
 
@@ -50,13 +66,29 @@ public abstract class TelemetryContextBase
 
     [JsonIgnore]
     public string EffectiveDbUser =>
-        !string.IsNullOrWhiteSpace(DbUserName)
-            ? DbUserName
-            : (!string.IsNullOrWhiteSpace(UserName) ? UserName : OsUserName);
+        FormatTransferPair(
+            !string.IsNullOrWhiteSpace(DbUserName)
+                ? DbUserName
+                : (!string.IsNullOrWhiteSpace(UserName) ? UserName : OsUserName));
+
+    [JsonIgnore]
+    public string EffectiveDbServer =>
+        !string.IsNullOrWhiteSpace(DbServer) ? FormatTransferPair(DbServer) : "-";
 
     [JsonIgnore]
     public string EffectiveSpid =>
-        !string.IsNullOrWhiteSpace(Spid) && Spid != "0" ? Spid : "-";
+        !string.IsNullOrWhiteSpace(Spid) && Spid != "0" ? FormatTransferPair(Spid) : "-";
+
+    private static string FormatTransferPair(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return string.Empty;
+        }
+        return value.Contains("->", StringComparison.Ordinal)
+            ? value.Replace("->", " > ", StringComparison.Ordinal)
+            : value;
+    }
 
     [JsonPropertyName("application_name")]
     public string ApplicationName { get; set; } = string.Empty;
