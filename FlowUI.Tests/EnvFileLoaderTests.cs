@@ -4,6 +4,8 @@ namespace FlowUI.Tests;
 
 public class EnvFileLoaderTests
 {
+    private static readonly string[] ExpectedForwardedArgs = ["--urls", "http://127.0.0.1:5185", "--contentRoot=/opt/flow-ui/app"];
+    private static readonly string[] ExpectedFallbackArgs = ["--urls", "http://localhost:5185"];
     [Fact]
     public void ParseLines_HandlesCommentsQuotesExportAndInlineComments()
     {
@@ -44,7 +46,7 @@ public class EnvFileLoaderTests
 
         Assert.Equal("/etc/flow-ui/flow-ui.env", envFile);
         Assert.Equal("CustomFlowUI", serviceName);
-        Assert.Equal(new[] { "--urls", "http://127.0.0.1:5185", "--contentRoot=/opt/flow-ui/app" }, forwarded);
+        Assert.Equal(ExpectedForwardedArgs, forwarded);
     }
 
     [Fact]
@@ -87,5 +89,44 @@ public class EnvFileLoaderTests
     {
         var missingPath = Path.Combine(Path.GetTempPath(), "nonexistent-" + Guid.NewGuid().ToString("N") + ".env");
         Assert.Equal(0, EnvFileLoader.LoadFile(missingPath));
+    }
+
+    [Theory]
+    [InlineData(new[] { "--env-file=/a.env", "-service-name=SvcA" }, "/a.env", "SvcA")]
+    [InlineData(new[] { "-env-file=/b.env", "--service-name", "SvcB" }, "/b.env", "SvcB")]
+    [InlineData(new[] { "-env-file", "/c.env", "-service-name", "SvcC" }, "/c.env", "SvcC")]
+    public void ExtractHostArgs_HandlesAllFlagVariants(string[] args, string expectedEnv, string expectedSvc)
+    {
+        var forwarded = EnvFileLoader.ExtractHostArgs(args, out var envFile, out var serviceName);
+        Assert.Equal(expectedEnv, envFile);
+        Assert.Equal(expectedSvc, serviceName);
+        Assert.Empty(forwarded);
+    }
+
+    [Fact]
+    public void ExtractHostArgs_FallsBackToEnvironmentVariable_AndLoadFileOverwritesWhenRequested()
+    {
+        var prev = Environment.GetEnvironmentVariable(EnvFileLoader.EnvFileVarName);
+        var key = "FLOWUI_TEST_OVERWRITE_" + Guid.NewGuid().ToString("N");
+        var tempFile = Path.GetTempFileName();
+        try
+        {
+            Environment.SetEnvironmentVariable(EnvFileLoader.EnvFileVarName, " /from/env.env ");
+            var forwarded = EnvFileLoader.ExtractHostArgs(ExpectedFallbackArgs, out var envFile, out var svc);
+            Assert.Equal("/from/env.env", envFile);
+            Assert.Null(svc);
+            Assert.Equal(ExpectedFallbackArgs, forwarded);
+
+            Environment.SetEnvironmentVariable(key, "old");
+            File.WriteAllText(tempFile, $"{key}=new\n");
+            Assert.Equal(1, EnvFileLoader.LoadFile(tempFile, overwriteExisting: true));
+            Assert.Equal("new", Environment.GetEnvironmentVariable(key));
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(EnvFileLoader.EnvFileVarName, prev);
+            Environment.SetEnvironmentVariable(key, null);
+            if (File.Exists(tempFile)) File.Delete(tempFile);
+        }
     }
 }

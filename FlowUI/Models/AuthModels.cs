@@ -11,6 +11,9 @@ public abstract class PermissionFlagsBase
     public bool CanDelete { get; set; }
     public bool CanExecute { get; set; }
     public bool IsAdmin { get; set; }
+    public bool CanWriteTemplates { get; set; }
+    public bool CanViewAllTemplates { get; set; }
+    public bool CanManageAllTemplates { get; set; }
 }
 
 /// <summary>
@@ -25,7 +28,10 @@ public sealed class CrudPermissions : PermissionFlagsBase
         CanUpdate = true,
         CanDelete = true,
         CanExecute = true,
-        IsAdmin = true
+        IsAdmin = true,
+        CanWriteTemplates = true,
+        CanViewAllTemplates = true,
+        CanManageAllTemplates = true
     };
 
     public static CrudPermissions ReadOnly() => new()
@@ -79,7 +85,10 @@ public sealed class AppUser : PermissionFlagsBase
         CanUpdate = IsAdmin || CanUpdate,
         CanDelete = IsAdmin || CanDelete,
         CanExecute = IsAdmin || CanExecute,
-        IsAdmin = IsAdmin
+        IsAdmin = IsAdmin,
+        CanWriteTemplates = IsAdmin || CanWriteTemplates || CanCreate || CanUpdate,
+        CanViewAllTemplates = IsAdmin || CanViewAllTemplates || CanManageAllTemplates,
+        CanManageAllTemplates = IsAdmin || CanManageAllTemplates
     };
 }
 

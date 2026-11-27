@@ -559,4 +559,90 @@ public class StudioStateServiceTests
         var events = studio.GetUiEvents(categoryFilter: "DESIGNER");
         Assert.NotEmpty(events);
     }
+
+    [Fact]
+    public async Task TemplatesLifecycle_CreateLoadSavePromoteDelete_AndPermissionGuards_WorkEndToEnd()
+    {
+        var handler = new FakeHttpMessageHandler(req =>
+        {
+            var path = req.RequestUri!.AbsolutePath;
+            return path switch
+            {
+                "/api/v1/health" => FakeHttpMessageHandler.JsonResponse("""{"status":"ok","dialect":"sqlite"}"""),
+                "/api/v1/artifacts/pipeline" when req.Method == HttpMethod.Get => FakeHttpMessageHandler.JsonResponse("""[{"id":1,"name":"pipe_1","type":"pipeline","content":"<pipeline name=\"pipe_1\"><flow/></pipeline>"}]"""),
+                "/api/v1/artifacts/pipeline" when req.Method == HttpMethod.Post => FakeHttpMessageHandler.JsonResponse("""{"id":99,"name":"live_from_unsaved","type":"pipeline","content":"<pipeline name=\"live_from_unsaved\"><flow/></pipeline>"}""", HttpStatusCode.Created),
+                "/api/v1/artifacts/config" => FakeHttpMessageHandler.JsonResponse("[]"),
+                "/api/v1/artifacts/options" => FakeHttpMessageHandler.JsonResponse("[]"),
+                "/api/v1/templates" when req.Method == HttpMethod.Get => FakeHttpMessageHandler.JsonResponse("""{"count":1,"templates":[{"id":10,"type":"pipeline","name":"nightly_tmpl","description":"Nightly","created_by":"admin","updated_by":"admin","created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-01T01:00:00Z"}]}"""),
+                "/api/v1/templates" when req.Method == HttpMethod.Post => FakeHttpMessageHandler.JsonResponse("""{"id":11,"type":"pipeline","name":"saved_tmpl","description":"Saved","content":"<pipeline name=\"saved_tmpl\"><flow/></pipeline>","created_by":"admin","updated_by":"admin"}""", HttpStatusCode.Created),
+                "/api/v1/templates/10" when req.Method == HttpMethod.Get => FakeHttpMessageHandler.JsonResponse("""{"id":10,"type":"pipeline","name":"nightly_tmpl","description":"Nightly","content":"<pipeline name=\"nightly_tmpl\"><flow><sql id=\"s1\" db=\"default_db\">SELECT 1;</sql></flow></pipeline>","created_by":"admin","updated_by":"admin"}"""),
+                "/api/v1/templates/10" when req.Method == HttpMethod.Put => FakeHttpMessageHandler.JsonResponse("""{"id":10,"type":"pipeline","name":"nightly_tmpl","description":"Edited","content":"<pipeline name=\"nightly_tmpl\"><flow/></pipeline>","created_by":"admin","updated_by":"admin"}"""),
+                "/api/v1/templates/10/instantiate" => FakeHttpMessageHandler.JsonResponse("""{"id":77,"type":"pipeline","name":"prod_nightly","description":"Prod","content":"<pipeline name=\"prod_nightly\"><flow/></pipeline>"}""", HttpStatusCode.Created),
+                "/api/v1/templates/10" when req.Method == HttpMethod.Delete => FakeHttpMessageHandler.JsonResponse("""{"deleted":true,"id":10}"""),
+                _ => FakeHttpMessageHandler.JsonResponse("{}")
+            };
+        });
+
+        var (studio, _, _, _) = CreateStudio(handler);
+        await studio.RefreshHealthAndArtifactsAsync();
+        Assert.Single(studio.Templates);
+
+        // Modal open/close helpers
+        studio.OpenSaveAsTemplateModal();
+        Assert.True(studio.IsTemplateModalOpen);
+        Assert.Equal("save_as_template", studio.TemplateModalMode);
+        studio.OpenInstantiateTemplateModal(studio.Templates[0]);
+        Assert.Equal("instantiate", studio.TemplateModalMode);
+        Assert.NotNull(studio.TemplateModalSource);
+        studio.CloseTemplateModal();
+        Assert.False(studio.IsTemplateModalOpen);
+
+        // Save current live draft as template
+        var savedFromDraft = await studio.SaveCurrentDraftAsTemplateAsync("saved_tmpl", "Saved", overwrite: true);
+        Assert.NotNull(savedFromDraft);
+        Assert.Equal(11, savedFromDraft.Id);
+
+        // Create new template draft, save (POST), and instantiate unsaved draft
+        await studio.CreateNewTemplateDraftAsync("config");
+        Assert.True(studio.CurrentDraft.IsTemplate);
+        Assert.Equal("config", studio.CurrentDraft.ArtifactType);
+        Assert.True(studio.CanEditCurrentTemplateDraft());
+        var createdNew = await studio.SaveCurrentTemplateAsync();
+        Assert.NotNull(createdNew);
+
+        // Unsaved template draft instantiate fallback
+        await studio.CreateNewTemplateDraftAsync("pipeline");
+        var unsavedLive = await studio.InstantiateTemplateAsync(null, "live_from_unsaved", "Desc", null, overwrite: false, openInDesigner: false);
+        Assert.NotNull(unsavedLive);
+
+        // Load existing template #10 into designer, update (PUT), instantiate, and delete
+        var tmpl = studio.Templates[0];
+        Assert.True(studio.CanEditTemplate(tmpl));
+        await studio.LoadTemplateIntoDesignerAsync(tmpl);
+        Assert.True(studio.CurrentDraft.IsTemplate);
+        Assert.Equal(10, studio.CurrentDraft.ApiTemplateId);
+
+        var updated = await studio.SaveCurrentTemplateAsync();
+        Assert.NotNull(updated);
+
+        var liveFromDesigner = await studio.InstantiateTemplateAsync(null, "prod_nightly", "Prod", ["finance"], overwrite: false, openInDesigner: false);
+        Assert.NotNull(liveFromDesigner);
+
+        var liveFromList = await studio.InstantiateTemplateAsync(tmpl, "prod_nightly", "Prod", null, overwrite: true, openInDesigner: true);
+        Assert.NotNull(liveFromList);
+        Assert.False(studio.CurrentDraft.IsTemplate);
+
+        await studio.LoadTemplateIntoDesignerAsync(tmpl);
+        await studio.DeleteTemplateAsync(tmpl);
+        Assert.Null(studio.CurrentDraft.ApiTemplateId);
+
+        // Permission guard: read-only user cannot create/save/delete templates
+        var (roStudio, _, _, _) = CreateStudio(handler, loginAsAdmin: false);
+        await roStudio.CreateNewTemplateDraftAsync("pipeline");
+        Assert.Contains("Permission denied", roStudio.StatusBannerMessage);
+        Assert.Null(await roStudio.SaveCurrentDraftAsTemplateAsync("x", "", false));
+        Assert.False(roStudio.CanEditTemplate(tmpl));
+        await roStudio.DeleteTemplateAsync(tmpl);
+        Assert.Contains("Permission denied", roStudio.StatusBannerMessage);
+    }
 }

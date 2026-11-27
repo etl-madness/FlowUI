@@ -1,10 +1,21 @@
-# FlowUI (Flow Builder Studio `v1.3.1`)
+# FlowUI (Flow Builder Studio `v1.4.1`)
 
-> **Version:** `1.3.1` | **Target Runtime:** `.NET 10.0` (`net10.0`) | **Companion Backend:** `go-flowAPI v1.3.1`
+> **Version:** `1.4.1` | **Target Runtime:** `.NET 10.0` (`net10.0`) | **Companion Backend:** `go-flowAPI v1.4.1` | **Release Notes:** [`RELEASE_NOTES.md`](./RELEASE_NOTES.md)
 
 **FlowUI** is an interactive .NET 10 Blazor Server web application (**Flow Builder Studio**) for visually designing, configuring, signing, encrypting, validating, executing, and monitoring XML ETL pipelines powered by **`go-flow`** and **`go-flowAPI`**.
 
-## What's New in `v1.3.1`
+## What's New in `v1.4.1`
+
+- **Reusable Pipeline, Options & Config Templates (`TemplatesTab.razor`, `PipelineDesignerTab.razor`, `TemplateActionModal.razor`)**:
+  - Save any Pipeline, Config, or Options draft as a reusable template, edit templates in the Visual Designer (with a clear Template Mode banner and Run disabled), and save templates as live Pipeline, Config, or Options artifacts.
+  - Displays template **Author (`CreatedBy`)**, **Created (UTC)**, and **Updated (UTC)** timestamps; users see only their own templates unless granted `template-viewer`, `template-admin`, or `all` in Settings.
+- **Database Server Telemetry in Logs (`LogsTab.razor`, `EventDetailModal.razor`, `TelemetryModels.cs`)**:
+  - **Pipeline Runs**: Added a **Log DB Server** column displaying the database server/catalog where run telemetry is logged (e.g., `T15P/PROTO` or `sqlite:flow_api.db`).
+  - **Step Execution Events**: Added a **DB Server** column alongside **DB User / SPID** showing the database server for each step's SPID.
+  - **Cross-Database `sql_bulk` Source > Target Formatting**: Automatically formats cross-database `sql_bulk` events as `source > target` for database server (`SRCSRV/SRCDB > TGTSRV/TGTDB`), DB user, and SPID (`54 > 61`), both in the events grid and the step event detail modal.
+- **Updated Connection String Documentation (`FlowUI/Docs/database_connection_strings.md`)**: Documented Unix Kerberos (`authenticator=krb5`, `krb5-*`, `ServerSPN`) parameters, `kinit` / CLI examples, and Unix SQL Server authentication mode selection (`SQL Auth` vs `NTLM` vs `Kerberos`).
+
+### Previous Highlights (`v1.3.1`–`v1.3.2`)
 
 - **5-Sub-Tab Access Control Workspace in Settings**:
   1. **API Users (`/api/v1/users`)**: Create/manage users and group assignments; new non-admin users default to `scoped` (zero implicit pipeline access until granted ACLs).

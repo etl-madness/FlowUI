@@ -19,7 +19,7 @@
                 <div class="brand">
                     <img src="favicon.png" alt="Flow Builder" class="brand-icon" />
                     <span>Flow Builder</span>
-                    <span class="accent-badge" title="FlowUI Studio v1.3.3">Studio v1.3.3</span>
+                    <span class="accent-badge" title="FlowUI Studio v1.4.1">Studio v1.4.1</span>
                 </div>
 
                 <!-- Main Navigation Tabs -->
@@ -35,6 +35,10 @@
                     <button type="button" class="nav-tab @(Studio.ActiveTab == "options" ? "active" : "")"
                             @onclick='() => Studio.SetActiveTabAsync("options")'>
                         <span>Options</span>
+                    </button>
+                    <button type="button" class="nav-tab @(Studio.ActiveTab == "templates" ? "active" : "")"
+                            @onclick='() => Studio.SetActiveTabAsync("templates")'>
+                        <span>Templates</span>
                     </button>
                     <button type="button" class="nav-tab @(Studio.ActiveTab == "runner" ? "active" : "")"
                             @onclick='() => Studio.SetActiveTabAsync("runner")'>
@@ -109,6 +113,9 @@
                     case "options":
                         <OptionsTab />
                         break;
+                    case "templates":
+                        <TemplatesTab />
+                        break;
                     case "runner":
                         <RunnerTab />
                         break;
@@ -130,6 +137,7 @@
                 <EventDetailModal />
                 <LocalFileUploadModal />
                 <CryptoSignVerifyModal />
+                <TemplateActionModal />
             }
         </div>
 

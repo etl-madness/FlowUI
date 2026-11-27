@@ -232,23 +232,39 @@ public class ModelsTests
         var runRec = new PipelineRunRecord
         {
             DatabaseUserName = "dbo",
+            DatabaseServer = "T15P/PROTO",
             Sspid = "64",
             Hostname = "etl-host-01"
         };
         Assert.Equal("dbo", runRec.DbUserName);
         Assert.Equal("dbo", runRec.DatabaseUserName);
         Assert.Equal("dbo", runRec.EffectiveDbUser);
+        Assert.Equal("T15P/PROTO", runRec.DbServer);
+        Assert.Equal("T15P/PROTO", runRec.EffectiveDbServer);
         Assert.Equal("64", runRec.Spid);
         Assert.Equal("64", runRec.Sspid);
         Assert.Equal("64", runRec.EffectiveSpid);
         Assert.Equal("etl-host-01", runRec.EffectiveHostname);
 
         runRec.DatabaseUserName = string.Empty;
+        runRec.DatabaseServer = string.Empty;
         runRec.Sspid = string.Empty;
         runRec.Hostname = "   ";
         Assert.Equal("dbo", runRec.DbUserName);
+        Assert.Equal("T15P/PROTO", runRec.DbServer);
         Assert.Equal("64", runRec.Spid);
         Assert.Equal("-", runRec.EffectiveHostname);
+
+        var bulkEvt = new PipelineEventRecord
+        {
+            NodeKind = "sql_bulk",
+            DbServer = "SRCSRV/SRCDB->TGTSRV/TGTDB",
+            DbUserName = "src_user->tgt_user",
+            Spid = "54->61"
+        };
+        Assert.Equal("SRCSRV/SRCDB > TGTSRV/TGTDB", bulkEvt.EffectiveDbServer);
+        Assert.Equal("src_user > tgt_user", bulkEvt.EffectiveDbUser);
+        Assert.Equal("54 > 61", bulkEvt.EffectiveSpid);
 
         var evtRec = new PipelineEventRecord
         {
@@ -264,5 +280,29 @@ public class ModelsTests
 
         evtRec.OutputText = string.Empty;
         Assert.Equal("SELECT 1 result", evtRec.NodeOutput);
+
+        var tmpl = new TemplateRecord
+        {
+            Id = 7,
+            Type = "pipeline",
+            Name = "nightly_template",
+            Description = "Reusable ETL",
+            CreatedBy = "alice",
+            UpdatedBy = "tadmin"
+        };
+        Assert.Equal(7, tmpl.Id);
+        Assert.Equal("pipeline", tmpl.Type);
+        Assert.Equal("alice", tmpl.CreatedBy);
+        Assert.Equal("tadmin", tmpl.UpdatedBy);
+
+        var draft = new PipelineDraft
+        {
+            IsTemplate = true,
+            ApiTemplateId = 7,
+            TemplateCreatedBy = "alice"
+        };
+        Assert.True(draft.IsTemplate);
+        Assert.Equal(7, draft.ApiTemplateId);
+        Assert.Equal("alice", draft.TemplateCreatedBy);
     }
 }

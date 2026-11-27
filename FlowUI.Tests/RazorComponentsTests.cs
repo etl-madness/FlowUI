@@ -63,7 +63,7 @@ public class RazorComponentsTests
     private static readonly BindingFlags NonPublic = BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Static;
     private static readonly string[] PipelineStatuses = ["", "SUCCESS", "FAILED", "RUNNING", "WARN"];
     private static readonly string[] BannerTypes = ["error", "success", "warning", "info"];
-    private static readonly string[] Tabs = ["config", "options", "runner", "logs", "settings", "pipeline"];
+    private static readonly string[] Tabs = ["config", "options", "templates", "runner", "logs", "settings", "pipeline"];
 
     private static (HtmlRenderer Renderer, TrackingComponentActivator Activator, StudioStateService Studio, UiAuthenticationService Auth) CreateTestHost(bool loginAsAdmin = true)
     {
@@ -77,6 +77,12 @@ public class RazorComponentsTests
                 "/api/v1/artifacts/pipeline" => FakeHttpMessageHandler.JsonResponse("""[{"id":1,"name":"pipe_1","type":"pipeline","groups":["finance_etl"],"content":"<pipeline name=\"pipe_1\"><flow><sql id=\"s1\" db=\"default_db\">SELECT 1;</sql></flow></pipeline>"}]"""),
                 "/api/v1/artifacts/config" => FakeHttpMessageHandler.JsonResponse("""[{"id":2,"name":"cfg_1","type":"config","content":"<pipeline name=\"cfg_1\"><variables><variable name=\"a\" value=\"1\"/></variables></pipeline>"}]"""),
                 "/api/v1/artifacts/options" => FakeHttpMessageHandler.JsonResponse("""[{"id":3,"name":"opt_1","type":"options","content":"<flow_cli_options><node-output>true</node-output></flow_cli_options>"}]"""),
+                "/api/v1/templates" when req.Method == HttpMethod.Get => FakeHttpMessageHandler.JsonResponse("""{"count":2,"templates":[{"id":10,"type":"pipeline","name":"nightly_tmpl","description":"Nightly ETL","created_by":"admin","updated_by":"tadmin","created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-02T00:00:00Z"},{"id":11,"type":"config","name":"cfg_tmpl","description":"DB Config","created_by":"alice","updated_by":"alice","created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-01T00:00:00Z"}]}"""),
+                "/api/v1/templates" when req.Method == HttpMethod.Post => FakeHttpMessageHandler.JsonResponse("""{"id":12,"type":"pipeline","name":"pipe_1_template","description":"Saved","content":"<pipeline/>","created_by":"admin","updated_by":"admin"}""", HttpStatusCode.Created),
+                "/api/v1/templates/10" when req.Method == HttpMethod.Get => FakeHttpMessageHandler.JsonResponse("""{"id":10,"type":"pipeline","name":"nightly_tmpl","description":"Nightly ETL","content":"<pipeline name=\"nightly_tmpl\"><flow><sql id=\"s1\" db=\"default_db\">SELECT 1;</sql></flow></pipeline>","created_by":"admin","updated_by":"tadmin","created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-02T00:00:00Z"}"""),
+                "/api/v1/templates/10" when req.Method == HttpMethod.Put => FakeHttpMessageHandler.JsonResponse("""{"id":10,"type":"pipeline","name":"nightly_tmpl","description":"Nightly ETL","content":"<pipeline name=\"nightly_tmpl\"><flow/></pipeline>","created_by":"admin","updated_by":"admin"}"""),
+                "/api/v1/templates/10/instantiate" => FakeHttpMessageHandler.JsonResponse("""{"id":55,"type":"pipeline","name":"nightly_live","description":"Live","content":"<pipeline name=\"nightly_live\"><flow/></pipeline>"}""", HttpStatusCode.Created),
+                "/api/v1/templates/10" when req.Method == HttpMethod.Delete => FakeHttpMessageHandler.JsonResponse("""{"deleted":true,"id":10}"""),
                 "/api/v1/validate" => FakeHttpMessageHandler.JsonResponse("""{"status":"VALID","formatted_output":"Valid XML"}"""),
                 "/api/v1/execute" => FakeHttpMessageHandler.JsonResponse("""{"run_id":"run-1","status":"SUCCESS","formatted_output":"","results":[{"node_id":"verify_connection","kind":"sql","status":"SUCCESS","node_output":"1 row"},{"node_id":"step_new","kind":"script","status":"FAILED","error":"err_msg"}]}"""),
                 "/api/v1/execute/stream" => new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(sse, Encoding.UTF8, "text/event-stream") },
@@ -553,6 +559,150 @@ public class RazorComponentsTests
             Assert.Contains("No group memberships", root.ToHtmlString());
 
             await InvokeTaskAsync(inst, "InspectMyEffectivePermissionsAsync");
+
+            // Stored Artifacts section with Templates filter, open & delete
+            SetField(inst, "_section", "artifacts");
+            SetField(inst, "_artifactTypeFilter", "template");
+            SetField(inst, "_artifactSearchQuery", "nightly");
+            Invoke(inst, "StateHasChanged");
+            var tmplHtml = root.ToHtmlString();
+            Assert.Contains("TMPL:PIPELINE", tmplHtml);
+            Assert.Contains("nightly_tmpl", tmplHtml);
+
+            var filtered = ((System.Collections.IEnumerable)Invoke(inst, "GetFilteredArtifacts")!).Cast<object>().ToList();
+            Assert.NotEmpty(filtered);
+            await InvokeTaskAsync(inst, "OpenStoredItemInStudioAsync", filtered[0]);
+            await InvokeTaskAsync(inst, "DeleteStoredItemFromTableAsync", filtered[0]);
         });
+    }
+
+    [Fact]
+    public async Task TemplatesTab_TemplateActionModal_AndDesignerTemplateMode_RenderAndExecute()
+    {
+        var (renderer, activator, studio, _) = CreateTestHost();
+        await renderer.Dispatcher.InvokeAsync(async () =>
+        {
+            await studio.InitializeStudioAsync();
+
+            // 1. Render TemplatesTab and exercise filters
+            var tabRoot = await renderer.RenderComponentAsync<TemplatesTab>();
+            var tabInst = activator.Get<TemplatesTab>();
+            Assert.Contains("nightly_tmpl", tabRoot.ToHtmlString());
+            Assert.Contains("cfg_tmpl", tabRoot.ToHtmlString());
+
+            SetField(tabInst, "_typeFilter", "config");
+            SetField(tabInst, "_search", "alice");
+            Invoke(tabInst, "StateHasChanged");
+            Assert.Contains("cfg_tmpl", tabRoot.ToHtmlString());
+            Assert.DoesNotContain("nightly_tmpl", tabRoot.ToHtmlString());
+            tabInst.Dispose();
+
+            // 2. Render TemplateActionModal in save_as_template and instantiate modes
+            studio.OpenSaveAsTemplateModal();
+            var modalRoot = await renderer.RenderComponentAsync<TemplateActionModal>();
+            var modalInst = activator.Get<TemplateActionModal>();
+            Assert.Contains("Save PIPELINE as Reusable Template", modalRoot.ToHtmlString());
+            await InvokeTaskAsync(modalInst, "SubmitAsync");
+            Assert.False(studio.IsTemplateModalOpen);
+
+            studio.OpenInstantiateTemplateModal(studio.Templates[0]);
+            Invoke(modalInst, "StateHasChanged");
+            Assert.Contains("Save PIPELINE Template as Live PIPELINE", modalRoot.ToHtmlString());
+            SetField(modalInst, "_groupsCsv", "finance_etl");
+            await InvokeTaskAsync(modalInst, "SubmitAsync");
+            Assert.False(studio.IsTemplateModalOpen);
+            modalInst.Dispose();
+
+            // 3. Render PipelineDesignerTab while editing a template (Template Mode banner + Run disabled)
+            await studio.LoadTemplateIntoDesignerAsync(studio.Templates[0]);
+            var designerRoot = await renderer.RenderComponentAsync<PipelineDesignerTab>();
+            var designerHtml = designerRoot.ToHtmlString();
+            Assert.Contains("Template Mode (PIPELINE)", designerHtml);
+            Assert.Contains("Save Template", designerHtml);
+            Assert.Contains("Templates cannot be executed", designerHtml);
+
+            // 4. Exercise Handbook search, scroll, theme, and tag copy helpers
+            var hbRoot = await renderer.RenderComponentAsync<Handbook>();
+            var hbInst = activator.Get<Handbook>();
+            await InvokeTaskAsync(hbInst, "OnThemeChanged", new ChangeEventArgs { Value = "dracula" });
+            await InvokeTaskAsync(hbInst, "ScrollToTopAsync");
+            Invoke(hbInst, "OnSearchInput", new ChangeEventArgs { Value = "sql" });
+            Invoke(hbInst, "StateHasChanged");
+            Assert.Contains("SQL", hbRoot.ToHtmlString(), StringComparison.OrdinalIgnoreCase);
+            Invoke(hbInst, "OnSearchInput", new ChangeEventArgs { Value = "zzz_no_match_zzz" });
+            Invoke(hbInst, "StateHasChanged");
+            Assert.Contains("No matching component guides found", hbRoot.ToHtmlString());
+            Invoke(hbInst, "ClearSearch");
+            var filteredGroups = (IReadOnlyList<HandbookCategoryGroup>)Invoke(hbInst, "get_FilteredGroups")!;
+            var firstItem = filteredGroups[0].Items[0];
+            await InvokeTaskAsync(hbInst, "CopyTagAsync", firstItem);
+            hbInst.Dispose();
+
+            // 5. Exercise Home tab switching including templates + unauthenticated LoginPanel branch
+            var homeRoot = await renderer.RenderComponentAsync<Home>();
+            var homeInst = activator.Get<Home>();
+            await InvokeTaskAsync(homeInst, "OnThemeChanged", new ChangeEventArgs { Value = "dark" });
+            await InvokeTaskAsync(homeInst, "HandleLogoutAsync");
+            homeInst.Dispose();
+
+            // 6. Exercise RunnerTab BuildRequest (cert, PGP, pubkey, signed envelope) & CryptoSignVerifyModal sign/verify
+            var cryptoSvc = new FlowCryptoService();
+            var kp = cryptoSvc.GenerateKeyPairLocal("ECDSA-P256", "Runner Signer");
+            studio.UpsertSavedKeyProfile(new SavedCryptoKeyProfile
+            {
+                Name = "cert_prof",
+                Format = "openssl",
+                PrivateKeyPem = kp.PrivateKeyPem,
+                PublicKeyPem = kp.PublicKeyPem,
+                CertificatePem = kp.CertificatePem,
+                CaCertificatePem = kp.CertificatePem
+            });
+            studio.UpsertSavedKeyProfile(new SavedCryptoKeyProfile { Name = "pub_prof", PublicKeyPem = kp.PublicKeyPem });
+
+            var runnerRoot = await renderer.RenderComponentAsync<RunnerTab>();
+            var runnerInst = activator.Get<RunnerTab>();
+            SetField(runnerInst, "_verifySignature", true);
+            SetField(runnerInst, "_pipelineSourceMode", "draft");
+            Invoke(runnerInst, "OnSelectVerifyProfile", new ChangeEventArgs { Value = "cert_prof" });
+            var reqCert = (ExecutePipelineRequest)Invoke(runnerInst, "BuildRequest")!;
+            Assert.NotNull(reqCert.VerifyCert);
+            Invoke(runnerInst, "OnSelectVerifyProfile", new ChangeEventArgs { Value = "pub_prof" });
+            var reqPub = (ExecutePipelineRequest)Invoke(runnerInst, "BuildRequest")!;
+            Assert.NotNull(reqPub.VerifyPubKey);
+            SetField(runnerInst, "_verifyKeyPem", "-----BEGIN PGP PUBLIC KEY BLOCK-----\nABC\n-----END PGP PUBLIC KEY BLOCK-----");
+            var reqPgp = (ExecutePipelineRequest)Invoke(runnerInst, "BuildRequest")!;
+            Assert.NotNull(reqPgp.VerifyKeyring);
+
+            studio.OpenSignVerifyModal();
+            var cModalRoot = await renderer.RenderComponentAsync<CryptoSignVerifyModal>();
+            var cModalInst = activator.Get<CryptoSignVerifyModal>();
+            Invoke(cModalInst, "OnSelectSavedProfileForSign", new ChangeEventArgs { Value = "cert_prof" });
+            var pemFile = new FakeBrowserFile("key.pem", kp.PrivateKeyPem);
+            await InvokeTaskAsync(cModalInst, "OnLoadPrivateKeyFileAsync", new InputFileChangeEventArgs([pemFile]));
+            await InvokeTaskAsync(cModalInst, "OnLoadCertFileAsync", new InputFileChangeEventArgs([new FakeBrowserFile("cert.pem", kp.CertificatePem)]));
+            await InvokeTaskAsync(cModalInst, "OnLoadDetachedSigFileAsync", new InputFileChangeEventArgs([new FakeBrowserFile("sig.txt", "SIG")]));
+            await InvokeTaskAsync(cModalInst, "ExecuteSignAsync");
+            Invoke(cModalInst, "OnSelectSavedProfileForVerify", new ChangeEventArgs { Value = "cert_prof" });
+            await InvokeTaskAsync(cModalInst, "ExecuteVerifyAsync");
+            cModalInst.Dispose();
+
+            // 7. Exercise LocalFileUploadModal file selection & metadata detection
+            studio.OpenUploadModal("pipeline");
+            var upRoot = await renderer.RenderComponentAsync<LocalFileUploadModal>();
+            var upInst = activator.Get<LocalFileUploadModal>();
+            await InvokeTaskAsync(upInst, "OnFileSelectedAsync", new InputFileChangeEventArgs([new FakeBrowserFile("sample.xml", "<pipeline name=\"uploaded_pipe\" description=\"From file\"><flow/></pipeline>")]));
+            upInst.Dispose();
+        });
+    }
+
+    private sealed class FakeBrowserFile(string name, string text) : IBrowserFile
+    {
+        private readonly byte[] _bytes = Encoding.UTF8.GetBytes(text);
+        public string Name => name;
+        public DateTimeOffset LastModified => DateTimeOffset.UtcNow;
+        public long Size => _bytes.Length;
+        public string ContentType => "application/xml";
+        public Stream OpenReadStream(long maxAllowedSize = 512000, CancellationToken cancellationToken = default) =>
+            new MemoryStream(_bytes, writable: false);
     }
 }

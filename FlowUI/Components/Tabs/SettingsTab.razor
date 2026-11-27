@@ -7,7 +7,7 @@
 <div class="workspace-full">
     <div style="display:flex; gap:8px; margin-bottom:16px; flex-wrap:wrap;">
         <button type="button" class="btn @(_section == "artifacts" ? "btn-primary" : "")" @onclick='() => _section = "artifacts"'>
-            📦 Stored Artifacts: Pipelines, Configs &amp; Options (@TotalArtifactCount)
+            📦 Stored Artifacts: Pipelines, Configs, Options &amp; Templates (@TotalArtifactCount)
         </button>
         <button type="button" class="btn @(_section == "crypto" ? "btn-primary" : "")" @onclick='() => _section = "crypto"'>
             🔐 Crypto &amp; Signing Keys (/api/v1/crypto) (@Studio.SavedKeyProfiles.Count)
@@ -37,11 +37,12 @@
                     <input class="form-control" style="width:270px;"
                            placeholder="🔍 Search by name, group, type, ID, description..."
                            @bind="_artifactSearchQuery" @bind:event="oninput" />
-                    <select class="form-control" style="width:175px;" @bind="_artifactTypeFilter">
+                    <select class="form-control" style="width:195px;" @bind="_artifactTypeFilter">
                         <option value="all">All Types (@TotalArtifactCount)</option>
                         <option value="pipeline">🔀 Pipelines (@Studio.Pipelines.Count)</option>
                         <option value="config">⚙️ Configs (@Studio.Configs.Count)</option>
                         <option value="options">🎛 Options (@Studio.OptionsList.Count)</option>
+                        <option value="template">📋 Templates (@Studio.Templates.Count)</option>
                     </select>
                     @if ((_artifactTypeFilter == "all" || _artifactTypeFilter == "pipeline") && knownPipelineGroups.Count > 0)
                     {
@@ -86,7 +87,7 @@
                         {
                             <tr>
                                 <td colspan="7" style="text-align:center; padding:24px; color:var(--text-muted);">
-                                    No stored Pipelines, Configs, or Options matched your filter criteria.
+                                    No stored Pipelines, Configs, Options, or Templates matched your filter criteria.
                                 </td>
                             </tr>
                         }
@@ -97,12 +98,27 @@
                                 <tr>
                                     <td><code>#@item.Id</code></td>
                                     <td>
-                                        <span class="badge @GetArtifactTypeBadge(item.Type)">
-                                            @GetArtifactTypeIcon(item.Type) @item.Type.ToUpperInvariant()
-                                        </span>
+                                        @if (item.IsTemplate)
+                                        {
+                                            <span class="badge @GetArtifactTypeBadge(item.Type)" title="Reusable @item.Type template">
+                                                📋 TMPL:@item.Type.ToUpperInvariant()
+                                            </span>
+                                        }
+                                        else
+                                        {
+                                            <span class="badge @GetArtifactTypeBadge(item.Type)">
+                                                @GetArtifactTypeIcon(item.Type) @item.Type.ToUpperInvariant()
+                                            </span>
+                                        }
                                     </td>
                                     <td>
                                         <div><strong>@item.Name</strong></div>
+                                        @if (item.IsTemplate && !string.IsNullOrWhiteSpace(item.Author))
+                                        {
+                                            <div style="margin-top:4px;">
+                                                <span class="section-badge" style="font-size:0.68rem;">👤 @item.Author</span>
+                                            </div>
+                                        }
                                         @if (item.Groups.Count > 0)
                                         {
                                             <div style="display:flex; gap:4px; flex-wrap:wrap; margin-top:4px;">
@@ -136,11 +152,19 @@
                                     <td>
                                         <div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap;">
                                             <button type="button" class="btn btn-sm"
-                                                    @onclick="() => OpenArtifactInStudioAsync(item)"
-                                                    title="Open this artifact in Designer / Editor">
+                                                    @onclick="() => OpenStoredItemInStudioAsync(item)"
+                                                    title="@(item.IsTemplate ? "Open this template in Designer" : "Open this artifact in Designer / Editor")">
                                                 🎨 Open / Edit
                                             </button>
-                                            @if (CanManageUsers && string.Equals(item.Type, "pipeline", StringComparison.OrdinalIgnoreCase))
+                                            @if (item.IsTemplate && item.TemplateRef is not null)
+                                            {
+                                                <button type="button" class="btn btn-sm btn-primary"
+                                                        @onclick="() => Studio.OpenInstantiateTemplateModal(item.TemplateRef)"
+                                                        title="Save this template as a live @item.Type">
+                                                    🚀 Save Live
+                                                </button>
+                                            }
+                                            @if (!item.IsTemplate && CanManageUsers && string.Equals(item.Type, "pipeline", StringComparison.OrdinalIgnoreCase))
                                             {
                                                 <button type="button" class="btn btn-sm"
                                                         @onclick='() => JumpToPipelineAcl(item.Name)'
@@ -149,9 +173,9 @@
                                                 </button>
                                             }
                                             <button type="button" class="btn btn-sm btn-danger"
-                                                    disabled="@(!CanDeleteArtifact)"
-                                                    @onclick="() => DeleteArtifactFromTableAsync(item)"
-                                                    title="Delete this artifact via go-flowAPI">
+                                                    disabled="@(item.IsTemplate ? !Studio.CanEditTemplate(item.TemplateRef) : !CanDeleteArtifact)"
+                                                    @onclick="() => DeleteStoredItemFromTableAsync(item)"
+                                                    title="@(item.IsTemplate ? "Delete this template via go-flowAPI" : "Delete this artifact via go-flowAPI")">
                                                 🗑 Delete
                                             </button>
                                         </div>
@@ -385,6 +409,10 @@
                                 <option value="execution-only">execution-only (Configs / Options R; Pipelines require ACLs)</option>
                                 <option value="upload">upload (Configs / Options C · R · U; Pipelines require ACLs)</option>
                                 <option value="write">write (Configs / Options C · R · U · D; Pipelines require ACLs)</option>
+                                <option value="write,template-viewer">write,template-viewer (Write + view/instantiate all users' templates)</option>
+                                <option value="read-only,template-viewer">read-only,template-viewer (Read-only + view/instantiate all users' templates)</option>
+                                <option value="write,template-admin">write,template-admin (Write + manage all users' templates)</option>
+                                <option value="template-admin">template-admin (View, edit, delete all users' templates)</option>
                                 <option value="all">all (ADMIN — Unrestricted full access)</option>
                             </select>
                             @if (!string.Equals(_apiPermission?.Trim(), "all", StringComparison.OrdinalIgnoreCase))
@@ -1501,7 +1529,7 @@
     private bool CanManageUsers => Auth.CurrentPermissions.IsAdmin;
     private bool CanDeleteArtifact => Auth.CurrentPermissions.CanDelete;
     private bool CanUploadArtifact => Auth.CurrentPermissions.CanCreate || Auth.CurrentPermissions.CanUpdate;
-    private int TotalArtifactCount => Studio.Pipelines.Count + Studio.Configs.Count + Studio.OptionsList.Count;
+    private int TotalArtifactCount => Studio.Pipelines.Count + Studio.Configs.Count + Studio.OptionsList.Count + Studio.Templates.Count;
 
     private static string GetSignatureFormatLabel(string? sigFormat) =>
         string.IsNullOrWhiteSpace(sigFormat) ? "OPENSSL" : sigFormat.ToUpperInvariant();
@@ -1614,16 +1642,71 @@
         await JS.InvokeVoidAsync("flowStudio.downloadXmlFile", filename, content);
     }
 
-    private IEnumerable<ArtifactRecord> GetFilteredArtifacts()
+    private sealed class StoredArtifactRow
     {
-        IEnumerable<ArtifactRecord> all = Studio.Pipelines
+        public int Id { get; init; }
+        public string Type { get; init; } = "pipeline";
+        public string Name { get; init; } = string.Empty;
+        public string Description { get; init; } = string.Empty;
+        public string Content { get; init; } = string.Empty;
+        public List<string> Groups { get; init; } = new();
+        public bool Encrypted { get; init; }
+        public bool Signed { get; init; }
+        public string SignatureFormat { get; init; } = string.Empty;
+        public DateTime UpdatedAt { get; init; }
+        public bool IsTemplate { get; init; }
+        public string Author { get; init; } = string.Empty;
+        public ArtifactRecord? ArtifactRef { get; init; }
+        public TemplateRecord? TemplateRef { get; init; }
+    }
+
+    private IEnumerable<StoredArtifactRow> GetFilteredArtifacts()
+    {
+        IEnumerable<StoredArtifactRow> all = Studio.Pipelines
             .Concat(Studio.Configs)
-            .Concat(Studio.OptionsList);
+            .Concat(Studio.OptionsList)
+            .Select(a => new StoredArtifactRow
+            {
+                Id = a.Id,
+                Type = a.Type,
+                Name = a.Name,
+                Description = a.Description,
+                Content = a.Content,
+                Groups = a.Groups,
+                Encrypted = a.Encrypted,
+                Signed = a.Signed,
+                SignatureFormat = a.SignatureFormat,
+                UpdatedAt = a.UpdatedAt,
+                IsTemplate = false,
+                ArtifactRef = a
+            })
+            .Concat(Studio.Templates.Select(t => new StoredArtifactRow
+            {
+                Id = t.Id,
+                Type = t.Type,
+                Name = t.Name,
+                Description = t.Description,
+                Content = t.Content,
+                Encrypted = t.Encrypted,
+                Signed = t.Signed,
+                SignatureFormat = t.SignatureFormat,
+                UpdatedAt = t.UpdatedAt,
+                IsTemplate = true,
+                Author = t.CreatedBy,
+                TemplateRef = t
+            }));
 
         if (!string.IsNullOrWhiteSpace(_artifactTypeFilter) &&
             !string.Equals(_artifactTypeFilter, "all", StringComparison.OrdinalIgnoreCase))
         {
-            all = all.Where(a => string.Equals(a.Type, _artifactTypeFilter, StringComparison.OrdinalIgnoreCase));
+            if (string.Equals(_artifactTypeFilter, "template", StringComparison.OrdinalIgnoreCase))
+            {
+                all = all.Where(a => a.IsTemplate);
+            }
+            else
+            {
+                all = all.Where(a => !a.IsTemplate && string.Equals(a.Type, _artifactTypeFilter, StringComparison.OrdinalIgnoreCase));
+            }
         }
 
         if (!string.IsNullOrWhiteSpace(_artifactPipelineGroupFilter) &&
@@ -1631,11 +1714,11 @@
         {
             if (string.Equals(_artifactPipelineGroupFilter, "__ungrouped__", StringComparison.OrdinalIgnoreCase))
             {
-                all = all.Where(a => string.Equals(a.Type, "pipeline", StringComparison.OrdinalIgnoreCase) && a.Groups.Count == 0);
+                all = all.Where(a => !a.IsTemplate && string.Equals(a.Type, "pipeline", StringComparison.OrdinalIgnoreCase) && a.Groups.Count == 0);
             }
             else
             {
-                all = all.Where(a => a.Groups.Any(g => string.Equals(g, _artifactPipelineGroupFilter, StringComparison.OrdinalIgnoreCase)));
+                all = all.Where(a => !a.IsTemplate && a.Groups.Any(g => string.Equals(g, _artifactPipelineGroupFilter, StringComparison.OrdinalIgnoreCase)));
             }
         }
 
@@ -1646,13 +1729,16 @@
                 (a.Name?.Contains(q, StringComparison.OrdinalIgnoreCase) ?? false) ||
                 (a.Description?.Contains(q, StringComparison.OrdinalIgnoreCase) ?? false) ||
                 (a.Type?.Contains(q, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                (a.IsTemplate && "template".Contains(q, StringComparison.OrdinalIgnoreCase)) ||
+                (a.Author?.Contains(q, StringComparison.OrdinalIgnoreCase) ?? false) ||
                 a.Groups.Any(g => g.Contains(q, StringComparison.OrdinalIgnoreCase)) ||
                 a.Id.ToString().Contains(q, StringComparison.OrdinalIgnoreCase) ||
                 (a.Content?.Contains(q, StringComparison.OrdinalIgnoreCase) ?? false));
         }
 
         return all
-            .OrderBy(a => a.Type, StringComparer.OrdinalIgnoreCase)
+            .OrderBy(a => a.IsTemplate ? 1 : 0)
+            .ThenBy(a => a.Type, StringComparer.OrdinalIgnoreCase)
             .ThenBy(a => a.Name, StringComparer.OrdinalIgnoreCase);
     }
 
@@ -1676,6 +1762,32 @@
         "options" => "🎛",
         _ => "🔀"
     };
+
+    private async Task OpenStoredItemInStudioAsync(StoredArtifactRow item)
+    {
+        if (item.IsTemplate && item.TemplateRef is not null)
+        {
+            await Studio.LoadTemplateIntoDesignerAsync(item.TemplateRef);
+            return;
+        }
+        if (item.ArtifactRef is not null)
+        {
+            await OpenArtifactInStudioAsync(item.ArtifactRef);
+        }
+    }
+
+    private async Task DeleteStoredItemFromTableAsync(StoredArtifactRow item)
+    {
+        if (item.IsTemplate && item.TemplateRef is not null)
+        {
+            await Studio.DeleteTemplateAsync(item.TemplateRef);
+            return;
+        }
+        if (item.ArtifactRef is not null)
+        {
+            await DeleteArtifactFromTableAsync(item.ArtifactRef);
+        }
+    }
 
     private async Task OpenArtifactInStudioAsync(ArtifactRecord item)
     {

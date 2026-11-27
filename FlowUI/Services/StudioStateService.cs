@@ -112,6 +112,7 @@ public sealed partial class StudioStateService
     public List<ArtifactRecord> Pipelines { get; private set; } = new();
     public List<ArtifactRecord> Configs { get; private set; } = new();
     public List<ArtifactRecord> OptionsList { get; private set; } = new();
+    public List<TemplateRecord> Templates { get; private set; } = new();
     public List<SavedDatabaseProfile> SavedDbProfiles { get; private set; } = new();
     public List<SavedCryptoKeyProfile> SavedKeyProfiles { get; private set; } = new();
     public List<UiEventRecord> UiEvents { get; private set; } = new();
@@ -357,11 +358,13 @@ public sealed partial class StudioStateService
             var pTask = SafeListArtifactsAsync("pipeline");
             var cTask = SafeListArtifactsAsync("config");
             var oTask = SafeListArtifactsAsync("options");
-            await Task.WhenAll(pTask, cTask, oTask);
+            var tTask = SafeListTemplatesAsync();
+            await Task.WhenAll(pTask, cTask, oTask, tTask);
 
             Pipelines = NormalizeArtifactList(await pTask, "pipeline");
             Configs = NormalizeArtifactList(await cTask, "config");
             OptionsList = NormalizeArtifactList(await oTask, "options");
+            Templates = await tTask;
         }
 
         NotifyStateChanged();
@@ -2027,5 +2030,311 @@ public sealed partial class StudioStateService
             query = query.Where(e => e.EventCategory.Contains(categoryFilter.Trim(), StringComparison.OrdinalIgnoreCase));
         }
         return query.Take(limit).ToList();
+    }
+
+    // =========================================================================
+    // Reusable Templates State, Modal & Workflows
+    // =========================================================================
+
+    public bool IsTemplateModalOpen { get; private set; }
+    public string TemplateModalMode { get; private set; } = "save_as_template"; // "save_as_template" or "instantiate"
+    public TemplateRecord? TemplateModalSource { get; private set; }
+
+    public void OpenSaveAsTemplateModal()
+    {
+        TemplateModalMode = "save_as_template";
+        TemplateModalSource = null;
+        IsTemplateModalOpen = true;
+        NotifyStateChanged();
+    }
+
+    public void OpenInstantiateTemplateModal(TemplateRecord? sourceTemplate = null)
+    {
+        TemplateModalMode = "instantiate";
+        TemplateModalSource = sourceTemplate;
+        IsTemplateModalOpen = true;
+        NotifyStateChanged();
+    }
+
+    public void CloseTemplateModal()
+    {
+        IsTemplateModalOpen = false;
+        TemplateModalSource = null;
+        NotifyStateChanged();
+    }
+
+    public bool CanEditTemplate(TemplateRecord? tmpl)
+    {
+        if (tmpl is null) return _auth.CurrentPermissions.CanWriteTemplates;
+        if (_auth.CurrentPermissions.CanManageAllTemplates || _auth.CurrentPermissions.IsAdmin) return true;
+        var me = _auth.CurrentUser?.Username ?? string.Empty;
+        return _auth.CurrentPermissions.CanWriteTemplates
+            && string.Equals(tmpl.CreatedBy?.Trim(), me.Trim(), StringComparison.OrdinalIgnoreCase);
+    }
+
+    public bool CanEditCurrentTemplateDraft()
+    {
+        if (!CurrentDraft.IsTemplate) return true;
+        if (!CurrentDraft.ApiTemplateId.HasValue) return _auth.CurrentPermissions.CanWriteTemplates;
+        if (_auth.CurrentPermissions.CanManageAllTemplates || _auth.CurrentPermissions.IsAdmin) return true;
+        var me = _auth.CurrentUser?.Username ?? string.Empty;
+        return _auth.CurrentPermissions.CanWriteTemplates
+            && string.Equals(CurrentDraft.TemplateCreatedBy?.Trim(), me.Trim(), StringComparison.OrdinalIgnoreCase);
+    }
+
+    private async Task<List<TemplateRecord>> SafeListTemplatesAsync()
+    {
+        try
+        {
+            return await _api.ListTemplatesAsync(includeContent: false);
+        }
+        catch
+        {
+            return new List<TemplateRecord>();
+        }
+    }
+
+    public async Task RefreshTemplatesAsync()
+    {
+        Templates = await SafeListTemplatesAsync();
+        NotifyStateChanged();
+    }
+
+    public async Task CreateNewTemplateDraftAsync(string artifactType)
+    {
+        if (!_auth.CurrentPermissions.CanWriteTemplates)
+        {
+            ShowBanner("Permission denied: creating templates requires write, upload, template-admin, or all permission.", "error");
+            return;
+        }
+        var normType = (artifactType ?? "pipeline").Trim().ToLowerInvariant();
+        if (normType != "config" && normType != "options") normType = "pipeline";
+
+        await CreateNewArtifactDraftAsync(normType, $"new_{normType}_template", $"Reusable {normType} template");
+        CurrentDraft.IsTemplate = true;
+        CurrentDraft.ApiTemplateId = null;
+        CurrentDraft.ApiArtifactId = null;
+        CurrentDraft.TemplateCreatedBy = _auth.CurrentUser?.Username ?? string.Empty;
+        CurrentDraft.TemplateUpdatedBy = CurrentDraft.TemplateCreatedBy;
+        CurrentDraft.TemplateCreatedAt = null;
+        CurrentDraft.TemplateUpdatedAt = null;
+        CurrentDraft.IsDirty = true;
+
+        ActiveTab = normType;
+        ShowBanner($"Created new {normType.ToUpperInvariant()} template draft. Save it when ready.", "info");
+        NotifyStateChanged();
+    }
+
+    public async Task LoadTemplateIntoDesignerAsync(TemplateRecord tmpl)
+    {
+        if (tmpl is null) return;
+        try
+        {
+            var full = await _api.GetTemplateByIdAsync(tmpl.Id) ?? tmpl;
+            var normType = (full.Type ?? "pipeline").Trim().ToLowerInvariant();
+            if (normType != "config" && normType != "options") normType = "pipeline";
+
+            var xml = full.Content ?? string.Empty;
+            var draft = string.IsNullOrWhiteSpace(xml)
+                ? new PipelineDraft { ArtifactType = normType, Name = full.Name, Description = full.Description }
+                : _xmlImporter.ImportFromXml(xml, NextNodeId, full.Name, full.Description, normType);
+
+            draft.ArtifactType = normType;
+            draft.Name = full.Name;
+            draft.Description = full.Description;
+            draft.ApiArtifactId = null;
+            draft.IsTemplate = true;
+            draft.ApiTemplateId = full.Id;
+            draft.TemplateCreatedBy = full.CreatedBy;
+            draft.TemplateUpdatedBy = full.UpdatedBy;
+            draft.TemplateCreatedAt = full.CreatedAt;
+            draft.TemplateUpdatedAt = full.UpdatedAt;
+            draft.IsDirty = false;
+
+            CurrentDraft = draft;
+            GeneratedXml = string.IsNullOrWhiteSpace(xml) ? _xmlGen.GenerateXml(draft) : xml;
+            ActiveTab = normType;
+            ShowBanner($"Loaded {normType.ToUpperInvariant()} template '{full.Name}' (author: {full.CreatedBy}).", "info");
+            NotifyStateChanged();
+        }
+        catch (Exception ex)
+        {
+            ShowBanner($"Failed loading template '{tmpl.Name}': {ex.Message}", "error");
+        }
+    }
+
+    public async Task<TemplateRecord?> SaveCurrentTemplateAsync()
+    {
+        if (!CurrentDraft.IsTemplate) return null;
+        if (!CanEditCurrentTemplateDraft())
+        {
+            ShowBanner("Permission denied: you can only edit your own templates unless granted template-admin or all.", "error");
+            return null;
+        }
+        try
+        {
+            var xml = XmlAutoSync ? _xmlGen.GenerateXml(CurrentDraft) : GeneratedXml;
+            GeneratedXml = xml;
+            TemplateRecord? saved;
+            if (CurrentDraft.ApiTemplateId.HasValue)
+            {
+                saved = await _api.UpdateTemplateAsync(
+                    CurrentDraft.ApiTemplateId.Value,
+                    CurrentDraft.ArtifactType,
+                    CurrentDraft.Name,
+                    CurrentDraft.Description,
+                    xml);
+            }
+            else
+            {
+                saved = await _api.CreateTemplateAsync(
+                    CurrentDraft.ArtifactType,
+                    CurrentDraft.Name,
+                    CurrentDraft.Description,
+                    xml,
+                    overwrite: false);
+            }
+
+            if (saved is not null)
+            {
+                CurrentDraft.ApiTemplateId = saved.Id;
+                CurrentDraft.Name = saved.Name;
+                CurrentDraft.Description = saved.Description;
+                CurrentDraft.TemplateCreatedBy = saved.CreatedBy;
+                CurrentDraft.TemplateUpdatedBy = saved.UpdatedBy;
+                CurrentDraft.TemplateCreatedAt = saved.CreatedAt;
+                CurrentDraft.TemplateUpdatedAt = saved.UpdatedAt;
+                CurrentDraft.IsDirty = false;
+                await RefreshTemplatesAsync();
+                ShowBanner($"Saved {saved.Type.ToUpperInvariant()} template '{saved.Name}' (#{saved.Id}).", "success");
+                NotifyStateChanged();
+            }
+            return saved;
+        }
+        catch (Exception ex)
+        {
+            ShowBanner($"Failed saving template: {ex.Message}", "error");
+            return null;
+        }
+    }
+
+    public async Task<TemplateRecord?> SaveCurrentDraftAsTemplateAsync(string name, string description, bool overwrite)
+    {
+        if (!_auth.CurrentPermissions.CanWriteTemplates)
+        {
+            ShowBanner("Permission denied: saving templates requires write, upload, template-admin, or all permission.", "error");
+            return null;
+        }
+        try
+        {
+            var xml = XmlAutoSync ? _xmlGen.GenerateXml(CurrentDraft) : GeneratedXml;
+            var saved = await _api.CreateTemplateAsync(
+                CurrentDraft.ArtifactType,
+                name,
+                description,
+                xml,
+                overwrite);
+            if (saved is not null)
+            {
+                await RefreshTemplatesAsync();
+                ShowBanner($"Saved {saved.Type.ToUpperInvariant()} template '{saved.Name}' (#{saved.Id}).", "success");
+                NotifyStateChanged();
+            }
+            return saved;
+        }
+        catch (Exception ex)
+        {
+            ShowBanner($"Failed saving as template: {ex.Message}", "error");
+            return null;
+        }
+    }
+
+    public async Task DeleteTemplateAsync(TemplateRecord tmpl)
+    {
+        if (tmpl is null) return;
+        if (!CanEditTemplate(tmpl))
+        {
+            ShowBanner("Permission denied: you can only delete your own templates unless granted template-admin or all.", "error");
+            return;
+        }
+        try
+        {
+            await _api.DeleteTemplateAsync(tmpl.Id);
+            if (CurrentDraft.IsTemplate && CurrentDraft.ApiTemplateId == tmpl.Id)
+            {
+                CurrentDraft.ApiTemplateId = null;
+                CurrentDraft.IsDirty = true;
+            }
+            await RefreshTemplatesAsync();
+            ShowBanner($"Deleted template '{tmpl.Name}'.", "info");
+            NotifyStateChanged();
+        }
+        catch (Exception ex)
+        {
+            ShowBanner($"Failed deleting template '{tmpl.Name}': {ex.Message}", "error");
+        }
+    }
+
+    public async Task<ArtifactRecord?> InstantiateTemplateAsync(
+        TemplateRecord? sourceTemplate,
+        string targetName,
+        string description,
+        IEnumerable<string>? groups,
+        bool overwrite,
+        bool openInDesigner)
+    {
+        try
+        {
+            ArtifactRecord? created;
+            string normType;
+            if (sourceTemplate is not null)
+            {
+                normType = (sourceTemplate.Type ?? "pipeline").Trim().ToLowerInvariant();
+                created = await _api.InstantiateTemplateAsync(
+                    sourceTemplate.Id,
+                    targetName,
+                    description,
+                    contentOverride: null,
+                    groups: groups,
+                    overwrite: overwrite);
+            }
+            else if (CurrentDraft.IsTemplate && CurrentDraft.ApiTemplateId.HasValue)
+            {
+                normType = (CurrentDraft.ArtifactType ?? "pipeline").Trim().ToLowerInvariant();
+                var xml = XmlAutoSync ? _xmlGen.GenerateXml(CurrentDraft) : GeneratedXml;
+                created = await _api.InstantiateTemplateAsync(
+                    CurrentDraft.ApiTemplateId.Value,
+                    targetName,
+                    description,
+                    contentOverride: xml,
+                    groups: groups,
+                    overwrite: overwrite);
+            }
+            else
+            {
+                // Unsaved template draft: save directly as a live artifact via existing artifact API
+                normType = (CurrentDraft.ArtifactType ?? "pipeline").Trim().ToLowerInvariant();
+                var xml = XmlAutoSync ? _xmlGen.GenerateXml(CurrentDraft) : GeneratedXml;
+                created = await _api.UpsertArtifactAsync(normType, targetName, description, xml, encrypted: false, secureKey: null, groups: groups);
+            }
+
+            if (created is not null)
+            {
+                await RefreshHealthAndArtifactsAsync();
+                ShowBanner($"Saved template as live {normType.ToUpperInvariant()} '{created.Name}' (#{created.Id}).", "success");
+                if (openInDesigner)
+                {
+                    await LoadArtifactRecordAsync(created, normType);
+                    ActiveTab = normType;
+                }
+                NotifyStateChanged();
+            }
+            return created;
+        }
+        catch (Exception ex)
+        {
+            ShowBanner($"Failed saving template as live artifact: {ex.Message}", "error");
+            return null;
+        }
     }
 }

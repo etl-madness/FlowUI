@@ -1,4 +1,5 @@
 ﻿C:\Users\U00001\source\repos\etl-madness\flowUI\FlowUI\Config\AppConfig.cs
+C:\Users\U00001\source\repos\etl-madness\flowUI\FlowUI\Config\EnvFileLoader.cs
 C:\Users\U00001\source\repos\etl-madness\flowUI\FlowUI\Models\AuthModels.cs
 C:\Users\U00001\source\repos\etl-madness\flowUI\FlowUI\Models\CryptoModels.cs
 C:\Users\U00001\source\repos\etl-madness\flowUI\FlowUI\Models\PipelineModels.cs
@@ -40,12 +41,14 @@ C:\Users\U00001\source\repos\etl-madness\flowUI\FlowUI\Components\Shared\LocalFi
 C:\Users\U00001\source\repos\etl-madness\flowUI\FlowUI\Components\Shared\LoginPanel.razor
 C:\Users\U00001\source\repos\etl-madness\flowUI\FlowUI\Components\Shared\NodeCard.razor
 C:\Users\U00001\source\repos\etl-madness\flowUI\FlowUI\Components\Shared\NodeEditModal.razor
+C:\Users\U00001\source\repos\etl-madness\flowUI\FlowUI\Components\Shared\TemplateActionModal.razor
 C:\Users\U00001\source\repos\etl-madness\flowUI\FlowUI\Components\Tabs\ConfigTab.razor
 C:\Users\U00001\source\repos\etl-madness\flowUI\FlowUI\Components\Tabs\LogsTab.razor
 C:\Users\U00001\source\repos\etl-madness\flowUI\FlowUI\Components\Tabs\OptionsTab.razor
 C:\Users\U00001\source\repos\etl-madness\flowUI\FlowUI\Components\Tabs\PipelineDesignerTab.razor
 C:\Users\U00001\source\repos\etl-madness\flowUI\FlowUI\Components\Tabs\RunnerTab.razor
 C:\Users\U00001\source\repos\etl-madness\flowUI\FlowUI\Components\Tabs\SettingsTab.razor
+C:\Users\U00001\source\repos\etl-madness\flowUI\FlowUI\Components\Tabs\TemplatesTab.razor
 C:\Users\U00001\source\repos\etl-madness\flowUI\FlowUI\Components\_Imports.razor
 C:\Users\U00001\source\repos\etl-madness\flowUI\FlowUI\Docs\assert.md
 C:\Users\U00001\source\repos\etl-madness\flowUI\FlowUI\Docs\database.md

@@ -11,7 +11,7 @@ namespace FlowUI.Services.Auth;
 /// </summary>
 public sealed class UiAuthenticationService : AuthenticationStateProvider, IAuthenticationService
 {
-    private readonly IReadOnlyList<IUiAuthProvider> _providers;
+    private readonly List<IUiAuthProvider> _providers;
     private readonly FlowApiClient _apiClient;
     private IUiAuthProvider _activeProvider;
     private AppUser? _currentUser;

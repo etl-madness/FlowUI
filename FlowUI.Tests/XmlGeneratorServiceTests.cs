@@ -189,4 +189,41 @@ public class XmlGeneratorServiceTests
         Assert.Contains("<variables>", xml);
         Assert.DoesNotContain("<flow>", xml);
     }
+
+    [Fact]
+    public void GenerateXml_RendersIfWithContentOtherChildrenThenElseContent_AndContainerWithContent()
+    {
+        var draft = new PipelineDraft { ArtifactType = "pipeline", Name = "BRANCH_AND_GROUP" };
+        var ifNode = new PipelineNode
+        {
+            Id = 1,
+            Section = "flow",
+            NodeType = "if",
+            Attributes = new(StringComparer.OrdinalIgnoreCase) { ["condition"] = "1 == 1" },
+            ContentText = "/* condition note */"
+        };
+        ifNode.Children.Add(new PipelineNode { Id = 2, Section = "flow", NodeType = "log", ContentText = "direct child" });
+        ifNode.Children.Add(new PipelineNode { Id = 3, Section = "flow", NodeType = "then", ContentText = "then text" });
+        ifNode.Children.Add(new PipelineNode { Id = 4, Section = "flow", NodeType = "else", ContentText = "else text" });
+        draft.FlowNodes.Add(ifNode);
+
+        var grp = new PipelineNode
+        {
+            Id = 5,
+            Section = "flow",
+            NodeType = "group",
+            Attributes = new(StringComparer.OrdinalIgnoreCase) { ["id"] = "g1" },
+            ContentText = "group note"
+        };
+        grp.Children.Add(new PipelineNode { Id = 6, Section = "flow", NodeType = "log", ContentText = "inside group" });
+        draft.FlowNodes.Add(grp);
+
+        var xml = _generator.GenerateXml(draft);
+        Assert.Contains("/* condition note */", xml);
+        Assert.Contains("direct child", xml);
+        Assert.Contains("then text", xml);
+        Assert.Contains("else text", xml);
+        Assert.Contains("group note", xml);
+        Assert.Contains("inside group", xml);
+    }
 }

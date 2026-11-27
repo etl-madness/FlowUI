@@ -1,0 +1,167 @@
+@implements IDisposable
+@inject StudioStateService Studio
+@inject IAuthenticationService Auth
+
+<div class="workspace-full">
+    <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:14px;">
+        <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+            <button type="button" class="btn @(_typeFilter == "" ? "btn-primary" : "")" @onclick='() => _typeFilter = ""'>
+                All (@Studio.Templates.Count)
+            </button>
+            <button type="button" class="btn @(_typeFilter == "pipeline" ? "btn-primary" : "")" @onclick='() => _typeFilter = "pipeline"'>
+                🔀 Pipeline (@Studio.Templates.Count(t => string.Equals(t.Type, "pipeline", StringComparison.OrdinalIgnoreCase)))
+            </button>
+            <button type="button" class="btn @(_typeFilter == "config" ? "btn-primary" : "")" @onclick='() => _typeFilter = "config"'>
+                ⚙️ Config (@Studio.Templates.Count(t => string.Equals(t.Type, "config", StringComparison.OrdinalIgnoreCase)))
+            </button>
+            <button type="button" class="btn @(_typeFilter == "options" ? "btn-primary" : "")" @onclick='() => _typeFilter = "options"'>
+                🎛 Options (@Studio.Templates.Count(t => string.Equals(t.Type, "options", StringComparison.OrdinalIgnoreCase)))
+            </button>
+            <input class="form-control" style="width:220px; padding:4px 8px;" placeholder="Filter by name, author, description..."
+                   @bind="_search" @bind:event="oninput" />
+        </div>
+
+        <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
+            @if (Auth.CurrentPermissions.CanWriteTemplates)
+            {
+                <button type="button" class="btn btn-sm btn-primary" @onclick='() => Studio.CreateNewTemplateDraftAsync("pipeline")'>
+                    ➕ Pipeline Template
+                </button>
+                <button type="button" class="btn btn-sm" @onclick='() => Studio.CreateNewTemplateDraftAsync("config")'>
+                    ➕ Config Template
+                </button>
+                <button type="button" class="btn btn-sm" @onclick='() => Studio.CreateNewTemplateDraftAsync("options")'>
+                    ➕ Options Template
+                </button>
+            }
+            <button type="button" class="btn btn-sm" @onclick="Studio.RefreshTemplatesAsync">
+                🔄 Refresh
+            </button>
+        </div>
+    </div>
+
+    <div class="panel" style="border:1px solid var(--border); border-radius:8px; height:calc(100vh - 165px);">
+        <div class="panel-header">
+            <span>📋 Reusable Templates (@FilteredTemplates.Count)</span>
+            <span class="section-badge">
+                @(Auth.CurrentPermissions.CanViewAllTemplates
+                    ? "Viewing all authors' templates (template-viewer / admin)"
+                    : "Showing your templates only")
+            </span>
+        </div>
+        <div class="panel-body" style="padding:0; overflow:auto;">
+            <table class="data-table" style="margin-top:0;">
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Type</th>
+                        <th>Description</th>
+                        <th>Author</th>
+                        <th>Created (UTC)</th>
+                        <th>Updated (UTC)</th>
+                        <th style="text-align:right;">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @if (FilteredTemplates.Count == 0)
+                    {
+                        <tr>
+                            <td colspan="7" style="text-align:center; padding:24px; color:var(--text-muted);">
+                                No templates found. Save any Pipeline, Config, or Options as a template from the Designer, or create a new template above.
+                            </td>
+                        </tr>
+                    }
+                    else
+                    {
+                        @foreach (var tmpl in FilteredTemplates)
+                        {
+                            var canEdit = Studio.CanEditTemplate(tmpl);
+                            <tr>
+                                <td>
+                                    <strong>@tmpl.Name</strong>
+                                    <code style="font-size:0.7rem; color:var(--text-muted); margin-left:4px;">#@tmpl.Id</code>
+                                </td>
+                                <td>
+                                    <span class="badge @GetTypeBadgeClass(tmpl.Type)">@tmpl.Type.ToUpperInvariant()</span>
+                                </td>
+                                <td style="font-size:0.78rem; color:var(--text-secondary); max-width:300px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;"
+                                    title="@tmpl.Description">
+                                    @(string.IsNullOrWhiteSpace(tmpl.Description) ? "-" : tmpl.Description)
+                                </td>
+                                <td style="font-size:0.78rem;">
+                                    <code>@(string.IsNullOrWhiteSpace(tmpl.CreatedBy) ? "-" : tmpl.CreatedBy)</code>
+                                </td>
+                                <td style="font-size:0.75rem;">@tmpl.CreatedAt.ToString("yyyy-MM-dd HH:mm")</td>
+                                <td style="font-size:0.75rem;" title="Updated by: @tmpl.UpdatedBy">
+                                    @tmpl.UpdatedAt.ToString("yyyy-MM-dd HH:mm")
+                                    @if (!string.IsNullOrWhiteSpace(tmpl.UpdatedBy) && !string.Equals(tmpl.UpdatedBy, tmpl.CreatedBy, StringComparison.OrdinalIgnoreCase))
+                                    {
+                                        <span style="color:var(--text-muted); font-size:0.7rem;"> (@tmpl.UpdatedBy)</span>
+                                    }
+                                </td>
+                                <td style="text-align:right; white-space:nowrap;">
+                                    <button type="button" class="btn btn-sm"
+                                            @onclick="() => Studio.LoadTemplateIntoDesignerAsync(tmpl)"
+                                            title="@(canEdit ? "Edit this template in the Visual Designer" : "Open template in Visual Designer (read-only)")">
+                                        @(canEdit ? "✏️ Edit" : "👁 View")
+                                    </button>
+                                    <button type="button" class="btn btn-sm btn-primary"
+                                            @onclick="() => Studio.OpenInstantiateTemplateModal(tmpl)"
+                                            title="Save this template as a live @tmpl.Type">
+                                        🚀 Save as @Capitalize(tmpl.Type)
+                                    </button>
+                                    @if (canEdit)
+                                    {
+                                        <button type="button" class="btn btn-sm btn-danger"
+                                                @onclick="() => Studio.DeleteTemplateAsync(tmpl)"
+                                                title="Delete this template">
+                                            🗑
+                                        </button>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+@code {
+    private string _typeFilter = string.Empty;
+    private string _search = string.Empty;
+
+    private List<TemplateRecord> FilteredTemplates =>
+        Studio.Templates
+            .Where(t => string.IsNullOrEmpty(_typeFilter) || string.Equals(t.Type, _typeFilter, StringComparison.OrdinalIgnoreCase))
+            .Where(t => string.IsNullOrWhiteSpace(_search)
+                || t.Name.Contains(_search.Trim(), StringComparison.OrdinalIgnoreCase)
+                || (t.Description?.Contains(_search.Trim(), StringComparison.OrdinalIgnoreCase) ?? false)
+                || (t.CreatedBy?.Contains(_search.Trim(), StringComparison.OrdinalIgnoreCase) ?? false))
+            .ToList();
+
+    protected override async Task OnInitializedAsync()
+    {
+        Studio.OnChange += HandleStateChanged;
+        await Studio.RefreshTemplatesAsync();
+    }
+
+    private void HandleStateChanged() => _ = InvokeAsync(StateHasChanged);
+
+    private static string GetTypeBadgeClass(string? type) =>
+        (type ?? "").ToLowerInvariant() switch
+        {
+            "config" => "badge-warn",
+            "options" => "badge-success",
+            _ => "badge-running"
+        };
+
+    private static string Capitalize(string? s) =>
+        string.IsNullOrWhiteSpace(s) ? "Artifact" : char.ToUpperInvariant(s[0]) + s[1..].ToLowerInvariant();
+
+    public void Dispose()
+    {
+        Studio.OnChange -= HandleStateChanged;
+    }
+}

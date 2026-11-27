@@ -96,12 +96,37 @@
                         </button>
                     </div>
 
-                    <button type="button" class="btn btn-sm btn-primary"
-                            disabled="@(!CanSaveArtifact)"
-                            @onclick="() => Studio.SaveCurrentArtifactAsync()"
-                            title="Save active artifact to database and go-flowAPI">
-                        💾 Save @Studio.CurrentDraft.ArtifactType.ToUpperInvariant()@(Studio.CurrentDraft.IsDirty ? " *" : "")
-                    </button>
+                    @if (Studio.CurrentDraft.IsTemplate)
+                    {
+                        <button type="button" class="btn btn-sm btn-primary"
+                                disabled="@(!Studio.CanEditCurrentTemplateDraft())"
+                                @onclick="() => Studio.SaveCurrentTemplateAsync()"
+                                title="Save changes to this template">
+                            💾 Save Template@(Studio.CurrentDraft.IsDirty ? " *" : "")
+                        </button>
+
+                        <button type="button" class="btn btn-sm btn-success"
+                                @onclick="() => Studio.OpenInstantiateTemplateModal(null)"
+                                title="Save this template as a live @Studio.CurrentDraft.ArtifactType artifact">
+                            🚀 Save as @Studio.CurrentDraft.ArtifactType.ToUpperInvariant()...
+                        </button>
+                    }
+                    else
+                    {
+                        <button type="button" class="btn btn-sm btn-primary"
+                                disabled="@(!CanSaveArtifact)"
+                                @onclick="() => Studio.SaveCurrentArtifactAsync()"
+                                title="Save active artifact to database and go-flowAPI">
+                            💾 Save @Studio.CurrentDraft.ArtifactType.ToUpperInvariant()@(Studio.CurrentDraft.IsDirty ? " *" : "")
+                        </button>
+
+                        <button type="button" class="btn btn-sm"
+                                disabled="@(!Auth.CurrentPermissions.CanWriteTemplates)"
+                                @onclick="Studio.OpenSaveAsTemplateModal"
+                                title="Save active @Studio.CurrentDraft.ArtifactType as a reusable template">
+                            📋 Save as Template
+                        </button>
+                    }
 
                     <button type="button" class="btn btn-sm"
                             @onclick="Studio.OpenSignVerifyModal"
@@ -109,7 +134,7 @@
                         ✍️ @(Studio.CurrentDraft.Signed ? $"Signed ({Studio.CurrentDraft.SignatureFormat.ToUpperInvariant()})" : "Sign / Verify")
                     </button>
 
-                    @if (Studio.CurrentDraft.ApiArtifactId.HasValue)
+                    @if (!Studio.CurrentDraft.IsTemplate && Studio.CurrentDraft.ApiArtifactId.HasValue)
                     {
                         <button type="button" class="btn btn-sm btn-danger"
                                 disabled="@(!Auth.CurrentPermissions.CanDelete)"
@@ -127,9 +152,9 @@
                     }
 
                     <button type="button" class="btn btn-sm btn-success"
-                            disabled="@(!Auth.CurrentPermissions.CanExecute)"
+                            disabled="@(!Auth.CurrentPermissions.CanExecute || Studio.CurrentDraft.IsTemplate)"
                             @onclick='() => Studio.SetActiveTabAsync("runner")'
-                            title="Open Pipeline Runner">
+                            title="@(Studio.CurrentDraft.IsTemplate ? "Templates cannot be executed — save as a live Pipeline first" : "Open Pipeline Runner")">
                         ▶ Run
                     </button>
 
@@ -144,6 +169,25 @@
         </div>
 
         <!-- Active Artifact Metadata Row -->
+        @if (Studio.CurrentDraft.IsTemplate)
+        {
+            <div style="padding:7px 16px; background:rgba(139,92,246,0.14); border-bottom:1px solid rgba(139,92,246,0.35); display:flex; align-items:center; justify-content:space-between; gap:10px; font-size:0.78rem;">
+                <span>
+                    📋 <strong>Template Mode (@Studio.CurrentDraft.ArtifactType.ToUpperInvariant())</strong> — Templates are not runnable.
+                    @if (!string.IsNullOrWhiteSpace(Studio.CurrentDraft.TemplateCreatedBy))
+                    {
+                        <span> Author: <code>@Studio.CurrentDraft.TemplateCreatedBy</code></span>
+                    }
+                    @if (Studio.CurrentDraft.TemplateUpdatedAt.HasValue)
+                    {
+                        <span> · Updated: @Studio.CurrentDraft.TemplateUpdatedAt.Value.ToString("yyyy-MM-dd HH:mm") UTC</span>
+                    }
+                </span>
+                <button type="button" class="btn btn-sm" @onclick='() => Studio.SetActiveTabAsync("templates")'>
+                    ← Back to Templates
+                </button>
+            </div>
+        }
         <div style="padding:10px 16px; background:rgba(128,128,128,0.05); border-bottom:1px solid var(--border); display:grid; grid-template-columns:auto 220px 1fr auto auto; gap:10px; align-items:center;">
             <div style="display:flex; align-items:center; gap:6px;">
                 @if (IsConfigArtifact)

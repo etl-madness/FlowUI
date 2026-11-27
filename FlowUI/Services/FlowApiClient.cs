@@ -316,6 +316,10 @@ public sealed class FlowApiClient
             }
         }
 
+        user.CanWriteTemplates = user.IsAdmin || eff.CanWriteTemplates;
+        user.CanViewAllTemplates = user.IsAdmin || eff.CanViewAllTemplates;
+        user.CanManageAllTemplates = user.IsAdmin || eff.CanManageAllTemplates;
+
         if (user.IsAdmin) return;
 
         var effPipelines = eff.Pipelines ?? [];
@@ -794,8 +798,8 @@ public sealed class FlowApiClient
         string permission,
         string description,
         bool isActive = true,
-        CancellationToken ct = default,
-        IEnumerable<string>? groups = null)
+        IEnumerable<string>? groups = null,
+        CancellationToken ct = default)
     {
         var groupArr = groups?.Where(g => !string.IsNullOrWhiteSpace(g)).Select(g => g.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
         object payload = groupArr is { Length: > 0 }
@@ -999,6 +1003,111 @@ public sealed class FlowApiClient
             throw new InvalidOperationException(ExtractErrorMessage(body, $"Failed querying effective permissions (HTTP {(int)resp.StatusCode})"));
         }
         return TryDeserialize<EffectivePermissionsResponseDto>(body);
+    }
+
+    // =========================================================================
+    // Reusable Templates (/api/v1/templates)
+    // =========================================================================
+
+    public Task<List<TemplateRecord>> ListTemplatesAsync(
+        string? typeFilter = null,
+        bool includeContent = false,
+        CancellationToken ct = default)
+    {
+        var query = new List<string>();
+        if (!string.IsNullOrWhiteSpace(typeFilter))
+        {
+            query.Add($"type={Uri.EscapeDataString(typeFilter.Trim().ToLowerInvariant())}");
+        }
+        if (includeContent)
+        {
+            query.Add("include_content=true");
+        }
+        var url = query.Count > 0 ? $"/api/v1/templates?{string.Join("&", query)}" : "/api/v1/templates";
+        return GetListFromJsonAsync<TemplateRecord>(url, "templates", ct);
+    }
+
+    public async Task<TemplateRecord?> GetTemplateByIdAsync(int id, CancellationToken ct = default)
+    {
+        using var resp = await _http.GetAsync($"/api/v1/templates/{id}", ct);
+        var body = await resp.Content.ReadAsStringAsync(ct);
+        if (!resp.IsSuccessStatusCode)
+        {
+            throw new InvalidOperationException(ExtractErrorMessage(body, $"Failed loading template #{id}"));
+        }
+        return TryDeserialize<TemplateRecord>(body);
+    }
+
+    public Task<TemplateRecord?> CreateTemplateAsync(
+        string type,
+        string name,
+        string description,
+        string content,
+        bool overwrite = false,
+        CancellationToken ct = default)
+    {
+        var payload = new
+        {
+            type = type.Trim().ToLowerInvariant(),
+            name = name.Trim(),
+            description = description ?? string.Empty,
+            content = content ?? string.Empty,
+            overwrite
+        };
+        return PostJsonForObjectAsync<TemplateRecord>("/api/v1/templates", payload, "Failed saving template", ct);
+    }
+
+    public async Task<TemplateRecord?> UpdateTemplateAsync(
+        int id,
+        string type,
+        string name,
+        string description,
+        string content,
+        CancellationToken ct = default)
+    {
+        var payload = new
+        {
+            type = type.Trim().ToLowerInvariant(),
+            name = name.Trim(),
+            description = description ?? string.Empty,
+            content = content ?? string.Empty
+        };
+        using var httpContent = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json");
+        using var resp = await _http.PutAsync($"/api/v1/templates/{id}", httpContent, ct);
+        var body = await resp.Content.ReadAsStringAsync(ct);
+        if (!resp.IsSuccessStatusCode)
+        {
+            throw new InvalidOperationException(ExtractErrorMessage(body, $"Failed updating template #{id}"));
+        }
+        return TryDeserialize<TemplateRecord>(body);
+    }
+
+    public Task DeleteTemplateAsync(int id, CancellationToken ct = default) =>
+        DeleteCoreAsync($"/api/v1/templates/{id}", $"Failed deleting template #{id}", ct);
+
+    public Task<ArtifactRecord?> InstantiateTemplateAsync(
+        int id,
+        string targetName,
+        string description,
+        string? contentOverride = null,
+        IEnumerable<string>? groups = null,
+        bool overwrite = false,
+        CancellationToken ct = default)
+    {
+        var groupArr = groups?
+            .Where(g => !string.IsNullOrWhiteSpace(g))
+            .Select(g => g.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray() ?? Array.Empty<string>();
+        var payload = new
+        {
+            name = targetName.Trim(),
+            description = description ?? string.Empty,
+            content = contentOverride ?? string.Empty,
+            groups = groupArr,
+            overwrite
+        };
+        return PostJsonForObjectAsync<ArtifactRecord>($"/api/v1/templates/{id}/instantiate", payload, "Failed saving template as live artifact", ct);
     }
 
     // =========================================================================

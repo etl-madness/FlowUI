@@ -1,0 +1,164 @@
+@implements IDisposable
+@inject StudioStateService Studio
+
+@if (Studio.IsTemplateModalOpen)
+{
+    var isInstantiate = string.Equals(Studio.TemplateModalMode, "instantiate", StringComparison.OrdinalIgnoreCase);
+    var targetType = (isInstantiate && Studio.TemplateModalSource is not null
+        ? Studio.TemplateModalSource.Type
+        : Studio.CurrentDraft.ArtifactType) ?? "pipeline";
+    var typeUpper = targetType.ToUpperInvariant();
+
+    <div class="modal-overlay" @onclick="Studio.CloseTemplateModal">
+        <div class="modal-box" style="max-width:520px;" @onclick:stopPropagation="true">
+            <div class="modal-header">
+                @if (isInstantiate)
+                {
+                    <span>🚀 Save @typeUpper Template as Live @typeUpper</span>
+                }
+                else
+                {
+                    <span>📋 Save @typeUpper as Reusable Template</span>
+                }
+                <button type="button" class="btn btn-sm" @onclick="Studio.CloseTemplateModal">✕</button>
+            </div>
+
+            <div class="modal-body">
+                <div class="form-group">
+                    <label class="form-label">@(isInstantiate ? $"Target {typeUpper} Name" : "Template Name")</label>
+                    <input class="form-control" @bind="_name" placeholder="@(isInstantiate ? $"e.g. prod_{targetType}" : $"e.g. standard_{targetType}_template")" />
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Description</label>
+                    <input class="form-control" @bind="_description" placeholder="Optional description" />
+                </div>
+
+                @if (isInstantiate && string.Equals(targetType, "pipeline", StringComparison.OrdinalIgnoreCase))
+                {
+                    <div class="form-group">
+                        <label class="form-label">Pipeline Groups (comma-separated, optional)</label>
+                        <input class="form-control" @bind="_groupsCsv" placeholder="e.g. finance_pipelines, nightly" />
+                    </div>
+                }
+
+                <div style="display:flex; flex-direction:column; gap:8px; margin-top:10px;">
+                    <label style="display:flex; align-items:center; gap:6px; font-size:0.8rem; cursor:pointer;">
+                        <input type="checkbox" @bind="_overwrite" />
+                        <span>Overwrite if a @(isInstantiate ? targetType : "template") with this name already exists</span>
+                    </label>
+
+                    @if (isInstantiate)
+                    {
+                        <label style="display:flex; align-items:center; gap:6px; font-size:0.8rem; cursor:pointer;">
+                            <input type="checkbox" @bind="_openInDesigner" />
+                            <span>Open newly created @targetType in the Visual Designer</span>
+                        </label>
+                    }
+                </div>
+            </div>
+
+            <div class="modal-footer">
+                <button type="button" class="btn" @onclick="Studio.CloseTemplateModal" disabled="@_busy">Cancel</button>
+                <button type="button" class="btn btn-primary" @onclick="SubmitAsync" disabled="@(_busy || string.IsNullOrWhiteSpace(_name))">
+                    @(_busy ? "Saving..." : (isInstantiate ? $"🚀 Create Live {typeUpper}" : "📋 Save Template"))
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private string _name = string.Empty;
+    private string _description = string.Empty;
+    private string _groupsCsv = string.Empty;
+    private bool _overwrite;
+    private bool _openInDesigner = true;
+    private bool _busy;
+    private bool _wasOpen;
+
+    protected override void OnInitialized()
+    {
+        Studio.OnChange += HandleStudioChanged;
+        SyncDefaultsIfOpened();
+    }
+
+    private void HandleStudioChanged()
+    {
+        SyncDefaultsIfOpened();
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    private void SyncDefaultsIfOpened()
+    {
+        if (Studio.IsTemplateModalOpen && !_wasOpen)
+        {
+            _overwrite = false;
+            _openInDesigner = true;
+            _groupsCsv = string.Empty;
+            if (string.Equals(Studio.TemplateModalMode, "instantiate", StringComparison.OrdinalIgnoreCase))
+            {
+                var src = Studio.TemplateModalSource;
+                var baseName = src?.Name ?? Studio.CurrentDraft.Name;
+                _name = baseName.EndsWith("_template", StringComparison.OrdinalIgnoreCase)
+                    ? baseName[..^"_template".Length]
+                    : $"{baseName}_copy";
+                _description = src?.Description ?? Studio.CurrentDraft.Description;
+            }
+            else
+            {
+                _name = string.IsNullOrWhiteSpace(Studio.CurrentDraft.Name)
+                    ? $"new_{Studio.CurrentDraft.ArtifactType}_template"
+                    : $"{Studio.CurrentDraft.Name}_template";
+                _description = Studio.CurrentDraft.Description;
+            }
+        }
+        _wasOpen = Studio.IsTemplateModalOpen;
+    }
+
+    private async Task SubmitAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_name) || _busy) return;
+        _busy = true;
+        try
+        {
+            if (string.Equals(Studio.TemplateModalMode, "instantiate", StringComparison.OrdinalIgnoreCase))
+            {
+                var groups = string.IsNullOrWhiteSpace(_groupsCsv)
+                    ? null
+                    : _groupsCsv.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+                var created = await Studio.InstantiateTemplateAsync(
+                    Studio.TemplateModalSource,
+                    _name.Trim(),
+                    _description ?? string.Empty,
+                    groups,
+                    _overwrite,
+                    _openInDesigner);
+                if (created is not null)
+                {
+                    Studio.CloseTemplateModal();
+                }
+            }
+            else
+            {
+                var saved = await Studio.SaveCurrentDraftAsTemplateAsync(
+                    _name.Trim(),
+                    _description ?? string.Empty,
+                    _overwrite);
+                if (saved is not null)
+                {
+                    Studio.CloseTemplateModal();
+                }
+            }
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    public void Dispose()
+    {
+        Studio.OnChange -= HandleStudioChanged;
+    }
+}

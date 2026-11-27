@@ -761,6 +761,15 @@ public sealed class EffectivePermissionsResponseDto
     [JsonPropertyName("can_execute_inline_xml")]
     public bool CanExecuteInlineXml { get; set; }
 
+    [JsonPropertyName("can_write_templates")]
+    public bool CanWriteTemplates { get; set; }
+
+    [JsonPropertyName("can_view_all_templates")]
+    public bool CanViewAllTemplates { get; set; }
+
+    [JsonPropertyName("can_manage_all_templates")]
+    public bool CanManageAllTemplates { get; set; }
+
     [JsonPropertyName("pipelines")]
     public List<EffectivePipelinePermissionsDto> Pipelines
     {

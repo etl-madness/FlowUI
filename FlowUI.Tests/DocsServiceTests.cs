@@ -88,5 +88,7 @@ public class DocsServiceTests
         Assert.True(allItems.Count > _catalog.Components.Count);
         Assert.Contains(allItems, i => i.Key == "flowui_and_goflowapi" && i.IsSupplementalGuide);
         Assert.Contains(allItems, i => i.Key == "sql" && !i.IsSupplementalGuide);
+        Assert.Equal(string.Empty, _docs.RenderMarkdownToHtml("   "));
+        Assert.Contains(">Title</h1>", _docs.RenderMarkdownToHtml("# Title"));
     }
 }

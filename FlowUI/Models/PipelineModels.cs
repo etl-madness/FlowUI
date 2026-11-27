@@ -90,6 +90,12 @@ public sealed class PipelineDraft
     {
         get; set;
     }
+    public bool IsTemplate { get; set; }
+    public int? ApiTemplateId { get; set; }
+    public string TemplateCreatedBy { get; set; } = string.Empty;
+    public string TemplateUpdatedBy { get; set; } = string.Empty;
+    public DateTime? TemplateCreatedAt { get; set; }
+    public DateTime? TemplateUpdatedAt { get; set; }
     public string ArtifactType { get; set; } = "pipeline"; // "pipeline", "config", or "options"
     public string Name { get; set; } = "default_pipeline";
     public string Description { get; set; } = "Visual pipeline designed in Flow Builder";
@@ -262,6 +268,45 @@ public sealed class ArtifactRecord
 
     [JsonPropertyName("updated_at")]
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
+}
+
+public sealed class TemplateRecord
+{
+    [JsonPropertyName("id")]
+    public int Id { get; set; }
+
+    [JsonPropertyName("type")]
+    public string Type { get; set; } = "pipeline";
+
+    [JsonPropertyName("name")]
+    public string Name { get; set; } = string.Empty;
+
+    [JsonPropertyName("description")]
+    public string Description { get; set; } = string.Empty;
+
+    [JsonPropertyName("content")]
+    public string Content { get; set; } = string.Empty;
+
+    [JsonPropertyName("created_by")]
+    public string CreatedBy { get; set; } = string.Empty;
+
+    [JsonPropertyName("updated_by")]
+    public string UpdatedBy { get; set; } = string.Empty;
+
+    [JsonPropertyName("created_at")]
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+
+    [JsonPropertyName("updated_at")]
+    public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
+
+    [JsonPropertyName("encrypted")]
+    public bool Encrypted { get; set; }
+
+    [JsonPropertyName("signed")]
+    public bool Signed { get; set; }
+
+    [JsonPropertyName("signature_format")]
+    public string SignatureFormat { get; set; } = string.Empty;
 }
 
 /// <summary>

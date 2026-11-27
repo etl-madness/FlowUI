@@ -985,4 +985,71 @@ public class FlowApiClientTests
         Assert.True(effGoSchema.Pipelines[0].Actions["execute"]);
         Assert.False(effGoSchema.Pipelines[0].Actions["delete"]);
     }
+
+    [Fact]
+    public async Task TemplatesApi_ListGetCreateUpdateInstantiateDelete_CoversSuccessAndErrorPaths()
+    {
+        bool fail = false;
+        var handler = new FakeHttpMessageHandler(req =>
+        {
+            var path = req.RequestUri!.AbsolutePath;
+            if (fail)
+            {
+                return FakeHttpMessageHandler.JsonResponse("""{"error":"template error"}""", HttpStatusCode.Forbidden);
+            }
+            if (path == "/api/v1/templates" && req.Method == HttpMethod.Get)
+            {
+                return FakeHttpMessageHandler.JsonResponse("""{"count":1,"templates":[{"id":1,"type":"pipeline","name":"etl_tmpl","description":"Desc","created_by":"alice","updated_by":"alice"}]}""");
+            }
+            if (path == "/api/v1/templates" && req.Method == HttpMethod.Post)
+            {
+                return FakeHttpMessageHandler.JsonResponse("""{"id":2,"type":"config","name":"cfg_tmpl","description":"Cfg","content":"<pipeline/>","created_by":"alice","updated_by":"alice"}""", HttpStatusCode.Created);
+            }
+            if (path == "/api/v1/templates/1" && req.Method == HttpMethod.Get)
+            {
+                return FakeHttpMessageHandler.JsonResponse("""{"id":1,"type":"pipeline","name":"etl_tmpl","description":"Desc","content":"<pipeline name=\"etl_tmpl\"><flow/></pipeline>","created_by":"alice","updated_by":"alice"}""");
+            }
+            if (path == "/api/v1/templates/1" && req.Method == HttpMethod.Put)
+            {
+                return FakeHttpMessageHandler.JsonResponse("""{"id":1,"type":"pipeline","name":"etl_tmpl_v2","description":"Updated","content":"<pipeline name=\"etl_tmpl_v2\"><flow/></pipeline>","created_by":"alice","updated_by":"tadmin"}""");
+            }
+            if (path == "/api/v1/templates/1/instantiate" && req.Method == HttpMethod.Post)
+            {
+                return FakeHttpMessageHandler.JsonResponse("""{"id":50,"type":"pipeline","name":"live_etl","description":"Live","groups":["finance"]}""", HttpStatusCode.Created);
+            }
+            if (path == "/api/v1/templates/1" && req.Method == HttpMethod.Delete)
+            {
+                return FakeHttpMessageHandler.JsonResponse("""{"deleted":true,"id":1}""");
+            }
+            return FakeHttpMessageHandler.JsonResponse("{}", HttpStatusCode.OK);
+        });
+
+        var client = CreateClient(handler, out _);
+
+        var list = await client.ListTemplatesAsync(typeFilter: "pipeline", includeContent: true);
+        Assert.Single(list);
+        Assert.Equal("etl_tmpl", list[0].Name);
+
+        var loaded = await client.GetTemplateByIdAsync(1);
+        Assert.NotNull(loaded);
+        Assert.Equal("alice", loaded.CreatedBy);
+
+        var created = await client.CreateTemplateAsync("config", "cfg_tmpl", "Cfg", "<pipeline/>", overwrite: true);
+        Assert.NotNull(created);
+        Assert.Equal(2, created.Id);
+
+        var updated = await client.UpdateTemplateAsync(1, "pipeline", "etl_tmpl_v2", "Updated", "<pipeline/>");
+        Assert.NotNull(updated);
+        Assert.Equal("tadmin", updated.UpdatedBy);
+
+        var instantiated = await client.InstantiateTemplateAsync(1, "live_etl", "Live", "<pipeline/>", ["finance", ""], overwrite: true);
+        Assert.NotNull(instantiated);
+        Assert.Equal("live_etl", instantiated.Name);
+
+        await client.DeleteTemplateAsync(1);
+
+        fail = true;
+        await Assert.ThrowsAsync<InvalidOperationException>(() => client.GetTemplateByIdAsync(1));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => client.UpdateTemplateAsync(1, "pipeline", "x", "", "<pipeline/>"));
+    }
 }
